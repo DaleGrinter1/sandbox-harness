@@ -1,0 +1,13 @@
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.agent-sandbox/
+.env
+.env.local
+.env.*.local
+.DS_Store
+artifacts/
+dist/
+*.egg-info/
