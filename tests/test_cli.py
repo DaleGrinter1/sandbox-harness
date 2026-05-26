@@ -4,12 +4,13 @@ import json
 
 import pytest
 
-from sandbox import CommandResult, ModalAuthenticationError
+from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig
 from sandbox_cli import cli
 
 
 class FakeSandbox:
     create_calls: list[dict[str, object]] = []
+    from_id_calls: list[dict[str, object]] = []
     instances: list["FakeSandbox"] = []
     raise_auth_error = False
 
@@ -18,16 +19,31 @@ class FakeSandbox:
         if cls.raise_auth_error:
             raise ModalAuthenticationError("Run modal setup before using Modal sandboxes.")
         sandbox = cls()
+        sandbox.config = SandboxConfig(
+            workspace=str(kwargs.get("workspace", "/workspace")),
+            sandbox_timeout=int(kwargs.get("sandbox_timeout", 300)),
+        )
         cls.create_calls.append(kwargs)
         cls.instances.append(sandbox)
         return sandbox
 
-    def __init__(self) -> None:
+    @classmethod
+    def from_id(cls, sandbox_id: str, **kwargs: object) -> "FakeSandbox":
+        sandbox = cls(sandbox_id=sandbox_id)
+        cls.from_id_calls.append({"sandbox_id": sandbox_id, **kwargs})
+        cls.instances.append(sandbox)
+        return sandbox
+
+    def __init__(self, sandbox_id: str = "sb-fake") -> None:
+        self.sandbox_id = sandbox_id
+        self.config = SandboxConfig()
         self.run_calls: list[tuple[str, str | None]] = []
         self.mkdir_calls: list[tuple[str, bool]] = []
         self.remove_calls: list[tuple[str, bool]] = []
         self.copy_from_local_calls: list[tuple[str, str]] = []
         self.copy_to_local_calls: list[tuple[str, str]] = []
+        self.detached = False
+        self.terminated = False
 
     def run(self, command: str, cwd: str | None = None) -> CommandResult:
         self.run_calls.append((command, cwd))
@@ -58,6 +74,12 @@ class FakeSandbox:
 
     def close(self) -> None:
         self.closed = True
+
+    def detach(self) -> None:
+        self.detached = True
+
+    def terminate(self, *, wait: bool = True) -> None:
+        self.terminated = wait
 
 
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
@@ -149,6 +171,57 @@ def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) 
     assert FakeSandbox.instances[-1].run_calls == [("sh -c 'exit 7'", "/tmp")]
 
 
+def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.from_id_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--image", "python:3.13-slim", "--sandbox-timeout", "600", "start"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {
+        "sandbox_id": "sb-fake",
+        "sandbox_timeout": 600,
+        "status": "started",
+        "stop_command": "sandbox stop sb-fake",
+        "use_command": 'sandbox --sandbox-id sb-fake run "python --version"',
+        "workspace": "/workspace",
+    }
+    assert FakeSandbox.create_calls[-1]["sandbox_id"] is None
+    assert FakeSandbox.instances[-1].detached is True
+    assert not hasattr(FakeSandbox.instances[-1], "closed")
+
+
+def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.from_id_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["stop", "sb-123"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {"sandbox_id": "sb-123", "status": "terminated"}
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.from_id_calls == [
+        {
+            "app_name": "modal-sandbox-sdk",
+            "command_timeout": 30,
+            "ensure_workspace": False,
+            "sandbox_id": "sb-123",
+            "sandbox_timeout": 300,
+            "workspace": "/workspace",
+        }
+    ]
+    assert FakeSandbox.instances[-1].terminated is True
+    assert not hasattr(FakeSandbox.instances[-1], "closed")
+
+
 def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -227,10 +300,16 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert exit_code == 0
     assert payload["name"] == "sandbox"
     assert payload["default_output"] == "json"
+    assert payload["commands"]["start"]["output"]["sandbox_id"] == "string"
+    assert payload["commands"]["stop"]["creates_sandbox"] is False
     assert payload["commands"]["run"]["output"]["stdout"] == "string"
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
     assert payload["auth"]["setup_commands"][0] == "modal setup"
+    assert payload["companion_mcps"]["context7"]["required_for_runtime"] is False
+    assert payload["companion_mcps"]["google_mcp_collection"]["url"] == "https://github.com/google/mcp"
+    assert payload["companion_mcps"]["notion"]["url"] == "https://mcp.notion.com/mcp"
+    assert payload["companion_mcps"]["slack"]["url"] == "https://mcp.slack.com/mcp"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 

@@ -1,18 +1,50 @@
 # Modal Sandbox SDK
 
-Small Python SDK and CLI for creating and working with Modal Sandboxes.
+Small Python SDK and CLI for running commands and file workflows inside Modal
+Sandboxes.
 
-Before your first live sandbox, make sure Modal is installed and authenticated:
+Use it when you want to:
+
+- Run a command in a fresh Modal Sandbox.
+- Write, read, list, remove, upload, or download sandbox files.
+- Keep files across CLI calls with an optional Modal volume.
+- Give agents a JSON-friendly CLI they can inspect before they act.
+
+## Quick Start
+
+Install dependencies for this repo:
+
+```bash
+uv sync
+```
+
+Sign in to Modal before your first live sandbox:
 
 ```bash
 uv run modal setup
 ```
 
-If that does not work in your environment, try:
+If your shell cannot find the `modal` command, use:
 
 ```bash
 uv run python -m modal setup
 ```
+
+Check the local setup without creating a sandbox:
+
+```bash
+uv run sandbox doctor
+```
+
+Run a command:
+
+```bash
+uv run sandbox --image python:3.13-slim run "python -c 'print(123)'"
+```
+
+## Python SDK
+
+The public package is `sandbox`.
 
 ```python
 from sandbox import Images, Sandbox
@@ -23,61 +55,43 @@ with Sandbox.create(image=Images.PY313) as sb:
     print(result.stdout)
 ```
 
-The default workspace is `/workspace` inside the Modal sandbox. File helpers use
-Modal's native sandbox filesystem APIs, so they do not depend on Python being
-available inside custom images.
-
-Raw registry image strings still work when you need a different base image:
+The default workspace is `/workspace` inside the Modal sandbox. Relative paths
+are resolved there:
 
 ```python
-from sandbox import Sandbox
+with Sandbox.create(image=Images.PY313) as sb:
+    sb.write_text("notes/todo.txt", "ship it\n")
+    print(sb.read_text("notes/todo.txt"))
+```
 
+Use a raw registry image string when you need a different base image:
+
+```python
 with Sandbox.create(image="python:3.12-slim") as sb:
-    result = sb.run("python --version")
+    print(sb.run("python --version").stdout)
 ```
 
-Volumes are opt-in:
+Pass environment variables:
 
 ```python
-from sandbox import Sandbox
-
-with Sandbox.create(workspace_volume="my-workspace") as sb:
-    sb.write_text("notes.txt", "persistent content\n")
-```
-
-Pass environment variables to the sandbox:
-
-```python
-from sandbox import Images, Sandbox
-
-with Sandbox.create(
-    image=Images.PY313,
-    env={"APP_ENV": "dev"},
-) as sb:
-    result = sb.run("echo $APP_ENV")
-    print(result.stdout)
+with Sandbox.create(image=Images.PY313, env={"APP_ENV": "dev"}) as sb:
+    print(sb.run("echo $APP_ENV").stdout)
 ```
 
 Copy files between your machine and the sandbox:
 
 ```python
-from sandbox import Images, Sandbox
-
 with Sandbox.create(image=Images.PY313) as sb:
     sb.copy_from_local("input.txt", "input.txt")
     sb.run("cp input.txt output.txt")
     sb.copy_to_local("output.txt", "output.txt")
 ```
 
-Run a local Python file in a sandbox:
+Use a workspace volume when files should persist after the sandbox command:
 
 ```python
-from sandbox import Images, Sandbox
-
-with Sandbox.create(image=Images.PY313) as sb:
-    sb.copy_from_local("script.py", "script.py")
-    result = sb.run("python script.py")
-    print(result.stdout)
+with Sandbox.create(workspace_volume="my-workspace") as sb:
+    sb.write_text("notes.txt", "persistent content\n")
 ```
 
 ## SDK Methods
@@ -98,29 +112,49 @@ sb.copy_to_local("remote.txt", "local.txt")
 sb.close()
 ```
 
-Relative paths are resolved inside the sandbox workspace. Absolute paths are
-used as-is inside the sandbox.
-
 ## CLI
 
-```bash
-sandbox --image python:3.13-slim run "python -c 'print(123)'"
-```
+The CLI command is `sandbox`. Commands print JSON except for `--help` and
+`--version`.
 
-Commands print JSON for easy inspection.
-
-For agents and automation, start with the discovery commands. They do not create
-Modal resources:
+Agent-friendly discovery commands do not create Modal resources:
 
 ```bash
-sandbox schema
-sandbox doctor
+uv run sandbox schema
+uv run sandbox doctor
 ```
 
 `sandbox schema` prints command metadata, output shapes, lifecycle notes, path
-rules, auth setup commands, and examples as JSON. `sandbox doctor` reports
-whether the Modal Python package is importable and whether credentials appear to
-be configured through environment variables or `~/.modal.toml`.
+rules, optional companion MCPs, auth setup commands, and examples as JSON.
+`sandbox doctor` reports whether the Modal Python package is importable and
+whether credentials appear to be configured through environment variables or
+`~/.modal.toml`.
+
+Run a command:
+
+```bash
+uv run sandbox --image python:3.13-slim run "python -c 'print(123)'"
+```
+
+Create a reusable sandbox for a longer agent workflow:
+
+```bash
+uv run sandbox --image python:3.13-slim start
+```
+
+The output includes a `sandbox_id`. Reuse it with `--sandbox-id`:
+
+```bash
+uv run sandbox --sandbox-id sb-abc123 write hello.py --content "print('hello')"
+uv run sandbox --sandbox-id sb-abc123 run "python hello.py"
+uv run sandbox --sandbox-id sb-abc123 read hello.py
+```
+
+Terminate it when you are done:
+
+```bash
+uv run sandbox stop sb-abc123
+```
 
 By default, `sandbox run` exits with status `0` when the SDK call succeeds,
 even if the command inside the sandbox exits nonzero. Use
@@ -128,34 +162,88 @@ even if the command inside the sandbox exits nonzero. Use
 command's exit status:
 
 ```bash
-sandbox run --use-command-exit-code "python -c 'raise SystemExit(7)'"
+uv run sandbox run --use-command-exit-code "python -c 'raise SystemExit(7)'"
 ```
+
+Run a small file workflow with a persistent workspace volume:
+
+```bash
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace write game.py --content "print('hello')"
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace ls .
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace run --cwd /workspace "python game.py"
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace read game.py
+```
+
+Copy files in and out:
+
+```bash
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace upload input.txt input.txt
+uv run sandbox --image python:3.13-slim --workspace-volume my-workspace download output.txt output.txt
+```
+
+Create and remove directories:
+
+```bash
+uv run sandbox --workspace-volume my-workspace mkdir notes
+uv run sandbox --workspace-volume my-workspace rm notes --recursive
+```
+
+## Paths And Lifecycle
+
+Relative paths are resolved inside the sandbox workspace, which defaults to
+`/workspace`. Absolute paths are used as-is inside the sandbox.
+
+Relative paths cannot use `..` to escape the workspace. This keeps helpers like
+`write_text("notes/todo.txt", "...")` focused on the sandbox workspace.
 
 Each CLI command creates or attaches to a sandbox, performs one operation, and
-then closes it. Use a persistent workspace volume when you want file operations
-to carry across separate CLI commands:
+then closes it. Created one-shot sandboxes are terminated on close. Sandboxes
+attached with `--sandbox-id` are detached on close and keep running.
+
+Use `start` when separate CLI calls should share one live sandbox. Use
+`--workspace-volume` when separate sandbox lifetimes need to share files.
+
+Stop long-lived sandboxes explicitly:
 
 ```bash
-sandbox --image python:3.13-slim --workspace-volume my-workspace write game.py --content "print('hello')"
-sandbox --image python:3.13-slim --workspace-volume my-workspace read game.py
-sandbox --image python:3.13-slim --workspace-volume my-workspace ls .
-sandbox --image python:3.13-slim --workspace-volume my-workspace mkdir notes
-sandbox --image python:3.13-slim --workspace-volume my-workspace upload input.txt input.txt
-sandbox --image python:3.13-slim --workspace-volume my-workspace run --cwd /workspace "python game.py"
-sandbox --image python:3.13-slim --workspace-volume my-workspace download output.txt output.txt
-sandbox --image python:3.13-slim --workspace-volume my-workspace rm notes --recursive
+uv run sandbox stop sb-abc123
 ```
 
-## Development
+## Agent And MCP Notes
 
-This repo uses `uv` for dependency management and local commands.
+This package does not require MCP at runtime. MCPs are useful companion tools
+for agents working on the repo or building projects around it.
+
+Recommended companion MCPs:
+
+- **Context7**: use for up-to-date, version-specific library documentation.
+  Helpful when agents need current Modal, Python packaging, or `pytest` docs.
+- **Google MCP collection**: use as the starting point for Google's MCP servers,
+  including Google Cloud, Google Workspace, Chrome DevTools, and related tools.
+- **gcloud MCP**: use when agents need to inspect or operate Google Cloud
+  projects through the `gcloud` CLI.
+- **MCP Toolbox for Databases**: use only if this project grows examples around
+  BigQuery, Cloud SQL, AlloyDB, Spanner, Firestore, or PostgreSQL.
+- **Notion MCP**: use when project docs, task notes, specs, or release notes
+  live in Notion. The hosted MCP endpoint is `https://mcp.notion.com/mcp`.
+- **Slack MCP**: use when agents need project discussion history, decisions,
+  status updates, channels, threads, or canvases from Slack. The hosted MCP
+  endpoint is `https://mcp.slack.com/mcp`.
+
+The same list is exposed in:
 
 ```bash
-uv sync
-uv run pytest
-uv run sandbox --help
-uv run sandbox run "python -c 'print(123)'"
+uv run sandbox schema
 ```
+
+Useful references:
+
+- Context7 docs: <https://context7.com/docs>
+- Google MCP collection: <https://github.com/google/mcp>
+- gcloud MCP: <https://github.com/googleapis/gcloud-mcp>
+- MCP Toolbox for Databases: <https://github.com/googleapis/mcp-toolbox>
+- Notion MCP docs: <https://developers.notion.com/guides/mcp/overview>
+- Slack MCP docs: <https://docs.slack.dev/ai/slack-mcp-server/>
 
 ## Modal Setup
 
@@ -166,13 +254,7 @@ your Modal account and run:
 uv run modal setup
 ```
 
-If your shell cannot find the `modal` command, use:
-
-```bash
-uv run python -m modal setup
-```
-
-In non-interactive environments such as CI, configure a Modal token instead:
+For non-interactive environments such as CI, configure a Modal token instead:
 
 ```bash
 uv run modal token new
@@ -185,10 +267,18 @@ environment. Modal documents the setup flow in its
 [`modal token` CLI reference](https://modal.com/docs/reference/cli/token).
 
 When Modal reports missing, invalid, or expired credentials, this SDK raises
-`ModalAuthenticationError` with the same setup commands so CLI users and Python
-callers get a next step instead of a raw Modal traceback.
+`ModalAuthenticationError` with setup commands so CLI users and Python callers
+get a next step instead of a raw Modal traceback.
 
-Unit tests use a fake provider and do not contact Modal.
+## Development
+
+Default tests do not create real Modal resources.
+
+```bash
+uv sync
+uv run pytest
+uv run sandbox --help
+```
 
 Live Modal tests are opt-in:
 

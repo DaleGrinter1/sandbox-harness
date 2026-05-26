@@ -14,6 +14,12 @@ class FakeProvider:
         self.copy_from_local_calls: list[tuple[str, str]] = []
         self.copy_to_local_calls: list[tuple[str, str]] = []
         self.closed = False
+        self.detached = False
+        self.terminated = False
+
+    @property
+    def sandbox_id(self) -> str:
+        return "sb-fake"
 
     def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
         self.commands.append((command, timeout, cwd))
@@ -54,6 +60,12 @@ class FakeProvider:
 
     def close(self) -> None:
         self.closed = True
+
+    def detach(self) -> None:
+        self.detached = True
+
+    def terminate(self, *, wait: bool = True) -> None:
+        self.terminated = wait
 
 
 def test_run_returns_command_result() -> None:
@@ -121,3 +133,15 @@ def test_context_manager_closes_provider() -> None:
         assert sandbox.config == provider.config
 
     assert provider.closed is True
+
+
+def test_lifecycle_helpers_delegate_to_provider() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    sandbox.detach()
+    sandbox.terminate(wait=True)
+
+    assert sandbox.sandbox_id == "sb-fake"
+    assert provider.detached is True
+    assert provider.terminated is True

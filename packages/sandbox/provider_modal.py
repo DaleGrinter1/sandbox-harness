@@ -35,6 +35,10 @@ class SandboxProvider(Protocol):
 
     config: SandboxConfig
 
+    @property
+    def sandbox_id(self) -> str | None:
+        ...
+
     def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
         ...
 
@@ -63,6 +67,12 @@ class SandboxProvider(Protocol):
         ...
 
     def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
+        ...
+
+    def detach(self) -> None:
+        ...
+
+    def terminate(self, *, wait: bool = True) -> None:
         ...
 
     def close(self) -> None:
@@ -211,6 +221,8 @@ class ModalSandboxProvider:
         cls,
         sandbox_id: str,
         config: SandboxConfig | None = None,
+        *,
+        ensure_workspace: bool = True,
     ) -> "ModalSandboxProvider":
         """Attach to an existing Modal sandbox.
 
@@ -218,6 +230,8 @@ class ModalSandboxProvider:
             sandbox_id: Modal sandbox object ID.
             config: Optional local SDK configuration to use for paths and
                 command defaults.
+            ensure_workspace: Whether to create the configured workspace after
+                attaching.
 
         Returns:
             Provider connected to the existing Modal sandbox.
@@ -226,7 +240,8 @@ class ModalSandboxProvider:
         modal = cls._load_modal()
         try:
             provider = cls(modal.Sandbox.from_id(sandbox_id), config, owns_sandbox=False)
-            provider.mkdir(config.workspace, parents=True)
+            if ensure_workspace:
+                provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
             _translate_modal_auth_error(exc, modal)
             raise
@@ -245,6 +260,12 @@ class ModalSandboxProvider:
     def filesystem(self) -> object:
         """Return Modal's native sandbox filesystem API."""
         return self._sandbox.filesystem
+
+    @property
+    def sandbox_id(self) -> str | None:
+        """Return the Modal sandbox object ID when available."""
+        value = getattr(self._sandbox, "object_id", None) or getattr(self._sandbox, "sandbox_id", None)
+        return str(value) if value is not None else None
 
     def _modal_call(self, operation: Callable[[], T]) -> T:
         try:
@@ -347,18 +368,34 @@ class ModalSandboxProvider:
             lambda: self.filesystem.copy_to_local(sandbox_path(remote_path, self.config.workspace), Path(local_path))
         )
 
-    def close(self) -> None:
-        """Terminate or detach from the Modal sandbox."""
-        terminate = getattr(self._sandbox, "terminate", None)
+    def detach(self) -> None:
+        """Detach from the Modal sandbox without terminating it."""
         detach = getattr(self._sandbox, "detach", None)
         try:
-            if self._owns_sandbox and callable(terminate):
-                terminate(wait=True)
-            elif callable(detach):
+            if callable(detach):
                 detach()
+            self._owns_sandbox = False
         except Exception as exc:
             _translate_modal_auth_error(exc)
             raise
+
+    def terminate(self, *, wait: bool = True) -> None:
+        """Terminate the Modal sandbox."""
+        terminate = getattr(self._sandbox, "terminate", None)
+        try:
+            if callable(terminate):
+                terminate(wait=wait)
+            self._owns_sandbox = False
+        except Exception as exc:
+            _translate_modal_auth_error(exc)
+            raise
+
+    def close(self) -> None:
+        """Terminate or detach from the Modal sandbox."""
+        if self._owns_sandbox:
+            self.terminate(wait=True)
+        else:
+            self.detach()
 
 
 def _resolve_image(modal: object, image: ImageSpec) -> object | None:

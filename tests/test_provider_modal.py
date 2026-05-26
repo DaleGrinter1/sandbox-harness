@@ -67,6 +67,7 @@ class FakeFilesystem:
 
 class FakeSandboxObject:
     def __init__(self) -> None:
+        self.object_id = "sb-created"
         self.filesystem = FakeFilesystem()
         self.exec_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.raise_auth_error_on_exec = False
@@ -124,7 +125,7 @@ class FakeModalSandbox:
     @staticmethod
     def from_id(sandbox_id: str) -> FakeSandboxObject:
         sandbox = FakeSandboxObject()
-        sandbox.sandbox_id = sandbox_id
+        sandbox.object_id = sandbox_id
         FakeModalSandbox.attached_sandbox = sandbox
         return sandbox
 
@@ -232,6 +233,29 @@ def test_attached_provider_detaches_without_terminating(monkeypatch) -> None:
     assert FakeModalSandbox.attached_sandbox is not None
     assert FakeModalSandbox.attached_sandbox.terminated is False
     assert FakeModalSandbox.attached_sandbox.detached is True
+
+
+def test_provider_exposes_sandbox_id_and_explicit_lifecycle_methods(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    assert provider.sandbox_id == "sb-created"
+    provider.detach()
+    assert FakeModalSandbox.created_sandbox is not None
+    assert FakeModalSandbox.created_sandbox.detached is True
+    assert FakeModalSandbox.created_sandbox.terminated is False
+
+    provider.terminate(wait=True)
+    assert FakeModalSandbox.created_sandbox.terminated is True
+
+
+def test_from_id_can_skip_workspace_creation_for_lifecycle_commands(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.from_id("sb-123", SandboxConfig(), ensure_workspace=False)
+
+    assert provider.sandbox_id == "sb-123"
+    assert FakeModalSandbox.attached_sandbox is not None
+    assert FakeModalSandbox.attached_sandbox.filesystem.calls == []
 
 
 def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:

@@ -111,6 +111,7 @@ class Sandbox:
         command_timeout: int = 30,
         sandbox_timeout: int = 300,
         workdir: str | None = None,
+        ensure_workspace: bool = True,
     ) -> "Sandbox":
         """Attach to an existing Modal Sandbox by ID.
 
@@ -121,6 +122,8 @@ class Sandbox:
             command_timeout: Default timeout in seconds for `run`.
             sandbox_timeout: Stored for config symmetry with `create`.
             workdir: Default working directory for commands.
+            ensure_workspace: Whether to create the configured workspace after
+                attaching.
 
         Returns:
             A `Sandbox` connected to the existing Modal sandbox.
@@ -132,7 +135,7 @@ class Sandbox:
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
         )
-        return cls(ModalSandboxProvider.from_id(sandbox_id, config))
+        return cls(ModalSandboxProvider.from_id(sandbox_id, config, ensure_workspace=ensure_workspace))
 
     @classmethod
     def from_provider(cls, provider: SandboxProvider) -> "Sandbox":
@@ -150,6 +153,11 @@ class Sandbox:
     def config(self) -> SandboxConfig:
         """Return the effective sandbox configuration."""
         return self._provider.config
+
+    @property
+    def sandbox_id(self) -> str | None:
+        """Return the Modal sandbox object ID when available."""
+        return self._provider.sandbox_id
 
     def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
         """Run a shell command inside the sandbox.
@@ -274,6 +282,14 @@ class Sandbox:
     def close(self) -> None:
         """Terminate or detach from the underlying sandbox."""
         self._provider.close()
+
+    def detach(self) -> None:
+        """Detach from the underlying sandbox without terminating it."""
+        self._provider.detach()
+
+    def terminate(self, *, wait: bool = True) -> None:
+        """Terminate the underlying sandbox."""
+        self._provider.terminate(wait=wait)
 
     def __enter__(self) -> "Sandbox":
         return self
