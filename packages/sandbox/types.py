@@ -9,6 +9,10 @@ ImageSpec = str | object | None
 VolumeSpec = str | object
 
 
+class ModalAuthenticationError(RuntimeError):
+    """Raised when Modal credentials are missing, invalid, or expired."""
+
+
 @dataclass(frozen=True)
 class SandboxConfig:
     """Configuration used to create or attach to a sandbox.

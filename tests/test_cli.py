@@ -4,16 +4,19 @@ import json
 
 import pytest
 
-from sandbox import CommandResult
+from sandbox import CommandResult, ModalAuthenticationError
 from sandbox_cli import cli
 
 
 class FakeSandbox:
     create_calls: list[dict[str, object]] = []
     instances: list["FakeSandbox"] = []
+    raise_auth_error = False
 
     @classmethod
     def create(cls, **kwargs: object) -> "FakeSandbox":
+        if cls.raise_auth_error:
+            raise ModalAuthenticationError("Run modal setup before using Modal sandboxes.")
         sandbox = cls()
         cls.create_calls.append(kwargs)
         cls.instances.append(sandbox)
@@ -60,6 +63,7 @@ class FakeSandbox:
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -115,6 +119,7 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
 def test_cli_write_read_and_ls(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["write", "game.py", "--content", "print('hello')"]) == 0
@@ -133,6 +138,7 @@ def test_cli_write_read_and_ls(monkeypatch, capsys) -> None:
 def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["run", "--cwd", "/tmp", "--use-command-exit-code", "sh -c 'exit 7'"])
@@ -146,6 +152,7 @@ def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) 
 def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["mkdir", "notes", "--no-parents"]) == 0
@@ -180,6 +187,7 @@ def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
 def test_cli_invalid_env_reports_error_without_traceback(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -189,3 +197,63 @@ def test_cli_invalid_env_reports_error_without_traceback(monkeypatch, capsys) ->
     assert exc.value.code == 2
     assert captured.out == ""
     assert "sandbox: error: --env values must use KEY=VALUE" in captured.err
+
+
+def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["run", "true"])
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert captured.out == ""
+    assert "sandbox: error: Run modal setup before using Modal sandboxes." in captured.err
+
+
+def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_package_version", lambda: "0.1.0")
+
+    exit_code = cli.main(["schema"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["name"] == "sandbox"
+    assert payload["default_output"] == "json"
+    assert payload["commands"]["run"]["output"]["stdout"] == "string"
+    assert payload["commands"]["schema"]["creates_sandbox"] is False
+    assert payload["commands"]["doctor"]["creates_sandbox"] is False
+    assert payload["auth"]["setup_commands"][0] == "modal setup"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    exit_code = cli.main(["doctor"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["modal_package"] == {"installed": True, "version": "1.4.3"}
+    assert payload["credentials"]["status"] == "missing_or_unknown"
+    assert payload["credentials"]["modal_toml"]["path"] == str(config_path)
+    assert payload["creates_modal_resources"] is False
+    assert payload["setup_commands"][0] == "modal setup"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []

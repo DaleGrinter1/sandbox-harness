@@ -26,6 +26,7 @@ def test_public_imports_are_available() -> None:
 
     assert hasattr(sdk, "Sandbox")
     assert hasattr(sdk, "CommandResult")
+    assert hasattr(sdk, "ModalAuthenticationError")
     assert hasattr(sdk, "SandboxConfig")
     assert hasattr(sdk, "Images")
 

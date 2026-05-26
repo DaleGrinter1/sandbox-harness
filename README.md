@@ -2,6 +2,18 @@
 
 Small Python SDK and CLI for creating and working with Modal Sandboxes.
 
+Before your first live sandbox, make sure Modal is installed and authenticated:
+
+```bash
+uv run modal setup
+```
+
+If that does not work in your environment, try:
+
+```bash
+uv run python -m modal setup
+```
+
 ```python
 from sandbox import Images, Sandbox
 
@@ -97,6 +109,19 @@ sandbox --image python:3.13-slim run "python -c 'print(123)'"
 
 Commands print JSON for easy inspection.
 
+For agents and automation, start with the discovery commands. They do not create
+Modal resources:
+
+```bash
+sandbox schema
+sandbox doctor
+```
+
+`sandbox schema` prints command metadata, output shapes, lifecycle notes, path
+rules, auth setup commands, and examples as JSON. `sandbox doctor` reports
+whether the Modal Python package is importable and whether credentials appear to
+be configured through environment variables or `~/.modal.toml`.
+
 By default, `sandbox run` exits with status `0` when the SDK call succeeds,
 even if the command inside the sandbox exits nonzero. Use
 `--use-command-exit-code` when shell scripts should receive the sandbox
@@ -134,8 +159,36 @@ uv run sandbox run "python -c 'print(123)'"
 
 ## Modal Setup
 
-Live runs require Modal credentials configured in your environment. Unit tests
-use a fake provider and do not contact Modal.
+Live runs require Modal credentials. If you are new to Modal, create/sign in to
+your Modal account and run:
+
+```bash
+uv run modal setup
+```
+
+If your shell cannot find the `modal` command, use:
+
+```bash
+uv run python -m modal setup
+```
+
+In non-interactive environments such as CI, configure a Modal token instead:
+
+```bash
+uv run modal token new
+uv run modal token set --token-id <token id> --token-secret <token secret>
+```
+
+You can also set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the process
+environment. Modal documents the setup flow in its
+[getting started guide](https://modal.com/docs/guide) and token options in the
+[`modal token` CLI reference](https://modal.com/docs/reference/cli/token).
+
+When Modal reports missing, invalid, or expired credentials, this SDK raises
+`ModalAuthenticationError` with the same setup commands so CLI users and Python
+callers get a next step instead of a raw Modal traceback.
+
+Unit tests use a fake provider and do not contact Modal.
 
 Live Modal tests are opt-in:
 

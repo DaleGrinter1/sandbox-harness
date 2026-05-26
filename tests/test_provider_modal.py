@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path
-from sandbox.types import SandboxConfig
+from sandbox.types import ModalAuthenticationError, SandboxConfig
+
+
+class FakeAuthError(Exception):
+    pass
 
 
 class FakeStream:
@@ -65,10 +69,13 @@ class FakeSandboxObject:
     def __init__(self) -> None:
         self.filesystem = FakeFilesystem()
         self.exec_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        self.raise_auth_error_on_exec = False
         self.terminated = False
         self.detached = False
 
     def exec(self, *args: object, **kwargs: object) -> FakeProcess:
+        if self.raise_auth_error_on_exec:
+            raise FakeAuthError("token missing")
         self.exec_calls.append((args, kwargs))
         return FakeProcess()
 
@@ -93,9 +100,12 @@ class FakeVolume:
 
 class FakeApp:
     lookups: list[tuple[str, bool]] = []
+    raise_auth_error = False
 
     @staticmethod
     def lookup(name: str, *, create_if_missing: bool = False) -> tuple[str, str]:
+        if FakeApp.raise_auth_error:
+            raise FakeAuthError("token missing")
         FakeApp.lookups.append((name, create_if_missing))
         return ("app", name)
 
@@ -124,10 +134,12 @@ class FakeModal:
     Image = FakeImage
     Volume = FakeVolume
     Sandbox = FakeModalSandbox
+    exception = SimpleNamespace(AuthError=FakeAuthError)
 
 
 def use_fake_modal(monkeypatch) -> None:
     FakeApp.lookups = []
+    FakeApp.raise_auth_error = False
     FakeModalSandbox.created_kwargs = {}
     FakeModalSandbox.created_sandbox = None
     FakeModalSandbox.attached_sandbox = None
@@ -186,6 +198,20 @@ def test_create_passes_modal_image_objects_through(monkeypatch) -> None:
     assert FakeModalSandbox.created_kwargs["image"] is image
 
 
+def test_create_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    FakeApp.raise_auth_error = True
+
+    with pytest.raises(ModalAuthenticationError) as exc:
+        ModalSandboxProvider.create(SandboxConfig())
+
+    message = str(exc.value)
+    assert "modal setup" in message
+    assert "python -m modal setup" in message
+    assert "MODAL_TOKEN_ID" in message
+    assert "token missing" in message
+
+
 def test_created_provider_terminates_owned_sandbox_on_close(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig())
@@ -217,6 +243,19 @@ def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:
     assert result.stdout == "ok\n"
     assert result.exit_code == 0
     assert provider._sandbox.exec_calls[-1] == (("sh", "-lc", "cd /workspace && echo ok"), {"timeout": 17})
+
+
+def test_run_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    sandbox = FakeSandboxObject()
+    sandbox.raise_auth_error_on_exec = True
+    provider = ModalSandboxProvider(sandbox, SandboxConfig())
+
+    with pytest.raises(ModalAuthenticationError) as exc:
+        provider.run("echo ok")
+
+    assert "modal setup" in str(exc.value)
+    assert "MODAL_TOKEN_SECRET" in str(exc.value)
 
 
 def test_filesystem_helpers_use_workspace_paths(monkeypatch) -> None:
