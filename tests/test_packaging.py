@@ -27,6 +27,20 @@ def test_public_imports_are_available() -> None:
     assert hasattr(sdk, "Sandbox")
     assert hasattr(sdk, "CommandResult")
     assert hasattr(sdk, "SandboxConfig")
+    assert hasattr(sdk, "Images")
+
+
+def test_image_presets_are_registry_tags() -> None:
+    from sandbox import Images
+
+    assert Images.PY313 == "python:3.13-slim"
+    assert Images.PY312 == "python:3.12-slim"
+    assert Images.PY311 == "python:3.11-slim"
+    assert Images.UBUNTU24 == "ubuntu:24.04"
+    assert Images.PYTHON_313_SLIM == "python:3.13-slim"
+    assert Images.PYTHON_312_SLIM == "python:3.12-slim"
+    assert Images.PYTHON_311_SLIM == "python:3.11-slim"
+    assert Images.UBUNTU_2404 == "ubuntu:24.04"
 
 
 def test_python_version_file_pins_local_development_runtime() -> None:
