@@ -3,14 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "modal-agent-sandbox"
+name = "modal-sandbox-sdk"
 version = "0.1.0"
-description = "A lightweight OpenAI Agents SDK-compatible sandbox harness backed by Modal Sandboxes."
+description = "A lightweight Python SDK and CLI for Modal Sandboxes."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "modal>=1.1.0",
-    "openai-agents>=0.6.0",
+    "modal>=1.4.3",
 ]
 
 [dependency-groups]
@@ -19,8 +18,14 @@ dev = [
 ]
 
 [project.scripts]
-sandbox-harness = "modal_agent_sandbox.cli:main"
+sandbox = "sandbox_cli.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/sandbox",
+    "packages/sandbox_cli",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["packages"]
