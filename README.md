@@ -57,6 +57,17 @@ with Sandbox.create(image=Images.PY313) as sb:
     sb.copy_to_local("output.txt", "output.txt")
 ```
 
+Run a local Python file in a sandbox:
+
+```python
+from sandbox import Images, Sandbox
+
+with Sandbox.create(image=Images.PY313) as sb:
+    sb.copy_from_local("script.py", "script.py")
+    result = sb.run("python script.py")
+    print(result.stdout)
+```
+
 ## SDK Methods
 
 The `Sandbox` object exposes a small synchronous API:
@@ -86,6 +97,15 @@ sandbox --image python:3.13-slim run "python -c 'print(123)'"
 
 Commands print JSON for easy inspection.
 
+By default, `sandbox run` exits with status `0` when the SDK call succeeds,
+even if the command inside the sandbox exits nonzero. Use
+`--use-command-exit-code` when shell scripts should receive the sandbox
+command's exit status:
+
+```bash
+sandbox run --use-command-exit-code "python -c 'raise SystemExit(7)'"
+```
+
 Each CLI command creates or attaches to a sandbox, performs one operation, and
 then closes it. Use a persistent workspace volume when you want file operations
 to carry across separate CLI commands:
@@ -94,6 +114,11 @@ to carry across separate CLI commands:
 sandbox --image python:3.13-slim --workspace-volume my-workspace write game.py --content "print('hello')"
 sandbox --image python:3.13-slim --workspace-volume my-workspace read game.py
 sandbox --image python:3.13-slim --workspace-volume my-workspace ls .
+sandbox --image python:3.13-slim --workspace-volume my-workspace mkdir notes
+sandbox --image python:3.13-slim --workspace-volume my-workspace upload input.txt input.txt
+sandbox --image python:3.13-slim --workspace-volume my-workspace run --cwd /workspace "python game.py"
+sandbox --image python:3.13-slim --workspace-volume my-workspace download output.txt output.txt
+sandbox --image python:3.13-slim --workspace-volume my-workspace rm notes --recursive
 ```
 
 ## Development

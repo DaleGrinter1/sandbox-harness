@@ -72,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run a command inside the sandbox.")
+    run_parser.add_argument("--cwd", help="Working directory inside the sandbox.")
+    run_parser.add_argument(
+        "--use-command-exit-code",
+        action="store_true",
+        help="Exit with the sandbox command's exit code instead of 0.",
+    )
     run_parser.add_argument("command")
 
     write_parser = subparsers.add_parser("write", help="Write a text file inside the sandbox workspace.")
@@ -83,6 +89,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     ls_parser = subparsers.add_parser("ls", help="List files inside the sandbox workspace.")
     ls_parser.add_argument("path", nargs="?", default=".")
+
+    mkdir_parser = subparsers.add_parser("mkdir", help="Create a directory inside the sandbox workspace.")
+    mkdir_parser.add_argument("path")
+    mkdir_parser.add_argument("--no-parents", action="store_true", help="Do not create missing parent directories.")
+
+    rm_parser = subparsers.add_parser("rm", help="Remove a file or directory inside the sandbox workspace.")
+    rm_parser.add_argument("path")
+    rm_parser.add_argument("-r", "--recursive", action="store_true", help="Remove directories recursively.")
+
+    upload_parser = subparsers.add_parser("upload", help="Copy a local file or directory into the sandbox.")
+    upload_parser.add_argument("local_path")
+    upload_parser.add_argument("remote_path")
+
+    download_parser = subparsers.add_parser("download", help="Copy a sandbox file or directory to the local machine.")
+    download_parser.add_argument("remote_path")
+    download_parser.add_argument("local_path")
 
     return parser
 
@@ -99,12 +121,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    sandbox = _sandbox_from_args(args)
+    sandbox: Sandbox | None = None
     try:
+        sandbox = _sandbox_from_args(args)
         # Each command creates or attaches to a sandbox, performs one operation,
         # and closes it. Richer lifecycle management can layer on later.
         if args.command_name == "run":
-            _print_json(sandbox.run(args.command).to_dict())
+            result = sandbox.run(args.command, cwd=args.cwd)
+            _print_json(result.to_dict())
+            if args.use_command_exit_code:
+                if result.exit_code is not None:
+                    return result.exit_code
+                return 124 if result.timed_out else 1
         elif args.command_name == "write":
             sandbox.write_text(args.path, args.content)
             _print_json({"path": args.path, "status": "wrote"})
@@ -112,10 +140,28 @@ def main(argv: list[str] | None = None) -> int:
             _print_json({"path": args.path, "content": sandbox.read_text(args.path)})
         elif args.command_name == "ls":
             _print_json({"path": args.path, "files": sandbox.list_files(args.path)})
+        elif args.command_name == "mkdir":
+            parents = not args.no_parents
+            sandbox.mkdir(args.path, parents=parents)
+            _print_json({"parents": parents, "path": args.path, "status": "created"})
+        elif args.command_name == "rm":
+            sandbox.remove(args.path, recursive=args.recursive)
+            _print_json({"path": args.path, "recursive": args.recursive, "status": "removed"})
+        elif args.command_name == "upload":
+            sandbox.copy_from_local(args.local_path, args.remote_path)
+            _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "uploaded"})
+        elif args.command_name == "download":
+            sandbox.copy_to_local(args.remote_path, args.local_path)
+            _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "downloaded"})
         else:
             parser.error(f"Unknown command: {args.command_name}")
+    except argparse.ArgumentTypeError as exc:
+        parser.exit(2, f"sandbox: error: {exc}\n")
+    except Exception as exc:
+        parser.exit(1, f"sandbox: error: {exc}\n")
     finally:
-        sandbox.close()
+        if sandbox is not None:
+            sandbox.close()
     return 0
 
 

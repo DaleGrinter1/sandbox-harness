@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path
 from sandbox.types import SandboxConfig
 
@@ -101,6 +103,7 @@ class FakeApp:
 class FakeModalSandbox:
     created_kwargs: dict[str, object] = {}
     created_sandbox: FakeSandboxObject | None = None
+    attached_sandbox: FakeSandboxObject | None = None
 
     @classmethod
     def create(cls, **kwargs: object) -> FakeSandboxObject:
@@ -112,6 +115,7 @@ class FakeModalSandbox:
     def from_id(sandbox_id: str) -> FakeSandboxObject:
         sandbox = FakeSandboxObject()
         sandbox.sandbox_id = sandbox_id
+        FakeModalSandbox.attached_sandbox = sandbox
         return sandbox
 
 
@@ -126,6 +130,7 @@ def use_fake_modal(monkeypatch) -> None:
     FakeApp.lookups = []
     FakeModalSandbox.created_kwargs = {}
     FakeModalSandbox.created_sandbox = None
+    FakeModalSandbox.attached_sandbox = None
     monkeypatch.setattr(ModalSandboxProvider, "_load_modal", staticmethod(lambda: FakeModal))
 
 
@@ -181,6 +186,28 @@ def test_create_passes_modal_image_objects_through(monkeypatch) -> None:
     assert FakeModalSandbox.created_kwargs["image"] is image
 
 
+def test_created_provider_terminates_owned_sandbox_on_close(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    provider.close()
+
+    assert FakeModalSandbox.created_sandbox is not None
+    assert FakeModalSandbox.created_sandbox.terminated is True
+    assert FakeModalSandbox.created_sandbox.detached is False
+
+
+def test_attached_provider_detaches_without_terminating(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.from_id("sb-123", SandboxConfig())
+
+    provider.close()
+
+    assert FakeModalSandbox.attached_sandbox is not None
+    assert FakeModalSandbox.attached_sandbox.terminated is False
+    assert FakeModalSandbox.attached_sandbox.detached is True
+
+
 def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
@@ -210,12 +237,24 @@ def test_filesystem_helpers_use_workspace_paths(monkeypatch) -> None:
     assert ("write_bytes", b"data", "/workspace/data.bin") in fs.calls
     assert ("read_text", "/workspace/notes/todo.txt") in fs.calls
     assert ("read_bytes", "/workspace/data.bin") in fs.calls
-    assert ("list_files", "/workspace/.") in fs.calls
+    assert ("list_files", "/workspace") in fs.calls
     assert ("remove", "/workspace/data.bin", False) in fs.calls
     assert ("copy_from_local", "local.txt", "/workspace/remote.txt") in fs.calls
     assert ("copy_to_local", "/workspace/remote.txt", "local.txt") in fs.calls
 
 
-def test_sandbox_path_allows_absolute_paths() -> None:
+def test_sandbox_path_allows_absolute_paths_and_workspace_relative_paths() -> None:
     assert sandbox_path("/tmp/file.txt", "/workspace") == "/tmp/file.txt"
+    assert sandbox_path("", "/workspace") == "/workspace"
+    assert sandbox_path(".", "/workspace") == "/workspace"
     assert sandbox_path("file.txt", "/workspace") == "/workspace/file.txt"
+    assert sandbox_path("notes/todo.txt", "/workspace/") == "/workspace/notes/todo.txt"
+    assert sandbox_path("notes/../file.txt", "/workspace") == "/workspace/file.txt"
+
+
+def test_sandbox_path_rejects_relative_workspace_escapes() -> None:
+    with pytest.raises(ValueError, match="escape the workspace"):
+        sandbox_path("../file.txt", "/workspace")
+
+    with pytest.raises(ValueError, match="escape the workspace"):
+        sandbox_path("notes/../../file.txt", "/workspace")

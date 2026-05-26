@@ -4,7 +4,7 @@ import os
 import shlex
 import time
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from .types import CommandResult, ImageSpec, SandboxConfig, VolumeSpec
@@ -70,22 +70,41 @@ def sandbox_path(path: str, workspace: str) -> str:
     """Convert relative SDK paths into absolute sandbox paths."""
     if path.startswith("/"):
         return path
-    normalized = "." if path == "" else path
-    return f"{workspace.rstrip('/')}/{normalized}"
+
+    workspace_root = workspace.rstrip("/") or "/"
+    parts: list[str] = []
+    for part in PurePosixPath(path or ".").parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                raise ValueError("Relative sandbox paths must not escape the workspace.")
+            parts.pop()
+            continue
+        parts.append(part)
+
+    if not parts:
+        return workspace_root
+    if workspace_root == "/":
+        return f"/{'/'.join(parts)}"
+    return f"{workspace_root}/{'/'.join(parts)}"
 
 
 class ModalSandboxProvider:
     """Provider backed by real Modal Sandbox objects."""
 
-    def __init__(self, sandbox: object, config: SandboxConfig):
+    def __init__(self, sandbox: object, config: SandboxConfig, *, owns_sandbox: bool = True):
         """Initialize the provider.
 
         Args:
             sandbox: Modal sandbox object.
             config: Effective SDK configuration for this sandbox.
+            owns_sandbox: Whether this provider created the sandbox and should
+                terminate it on close.
         """
         self._sandbox = sandbox
         self.config = config
+        self._owns_sandbox = owns_sandbox
 
     @classmethod
     def create(cls, config: SandboxConfig | None = None) -> "ModalSandboxProvider":
@@ -136,7 +155,7 @@ class ModalSandboxProvider:
         create_kwargs.update({key: value for key, value in optional_kwargs.items() if value is not None})
 
         sandbox = modal.Sandbox.create(**create_kwargs)
-        provider = cls(sandbox, config)
+        provider = cls(sandbox, config, owns_sandbox=True)
         # Ensure relative file operations have a stable root even without a
         # mounted workspace volume.
         provider.mkdir(config.workspace, parents=True)
@@ -160,7 +179,7 @@ class ModalSandboxProvider:
         """
         config = config or SandboxConfig()
         modal = cls._load_modal()
-        provider = cls(modal.Sandbox.from_id(sandbox_id), config)
+        provider = cls(modal.Sandbox.from_id(sandbox_id), config, owns_sandbox=False)
         provider.mkdir(config.workspace, parents=True)
         return provider
 
@@ -261,9 +280,9 @@ class ModalSandboxProvider:
         """Terminate or detach from the Modal sandbox."""
         terminate = getattr(self._sandbox, "terminate", None)
         detach = getattr(self._sandbox, "detach", None)
-        if callable(terminate):
+        if self._owns_sandbox and callable(terminate):
             terminate(wait=True)
-        if callable(detach):
+        elif callable(detach):
             detach()
 
 
