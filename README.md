@@ -18,7 +18,25 @@ Install dependencies for this repo:
 uv sync
 ```
 
-Sign in to Modal before your first live sandbox:
+Inspect the CLI contract without creating Modal resources:
+
+```bash
+uv run sandbox schema
+```
+
+Check whether Modal is installed and credentials appear to be configured:
+
+```bash
+uv run sandbox doctor
+```
+
+Preview the first live sandbox command:
+
+```bash
+uv run sandbox quickstart
+```
+
+If `doctor` reports missing credentials, sign in to Modal:
 
 ```bash
 uv run modal setup
@@ -30,13 +48,13 @@ If your shell cannot find the `modal` command, use:
 uv run python -m modal setup
 ```
 
-Check the local setup without creating a sandbox:
+Run the beginner quickstart in a short-lived Modal Sandbox:
 
 ```bash
-uv run sandbox doctor
+uv run sandbox --image python:3.13-slim quickstart --run
 ```
 
-Run a command:
+Then run any command:
 
 ```bash
 uv run sandbox --image python:3.13-slim run "python -c 'print(123)'"
@@ -122,13 +140,36 @@ Agent-friendly discovery commands do not create Modal resources:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
+uv run sandbox quickstart
 ```
 
 `sandbox schema` prints command metadata, output shapes, lifecycle notes, path
 rules, optional companion MCPs, auth setup commands, and examples as JSON.
 `sandbox doctor` reports whether the Modal Python package is importable and
 whether credentials appear to be configured through environment variables or
-`~/.modal.toml`.
+`~/.modal.toml`, plus beginner next steps.
+`sandbox quickstart` previews a first live command without creating resources.
+Use `sandbox quickstart --run` to create a short-lived sandbox and run
+`python -c 'print(123)'`.
+
+## For AI Agents
+
+Use the safe discovery sequence before creating Modal resources:
+
+```bash
+uv run sandbox schema
+uv run sandbox doctor
+uv run sandbox quickstart
+```
+
+If `doctor` reports `ready: true`, the first live verification command is:
+
+```bash
+uv run sandbox --image python:3.13-slim quickstart --run
+```
+
+After that, use `sandbox run` for one-off commands or `sandbox start` plus
+`--sandbox-id` for a longer workflow.
 
 Run a command:
 

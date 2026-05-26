@@ -303,6 +303,13 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert payload["commands"]["start"]["output"]["sandbox_id"] == "string"
     assert payload["commands"]["stop"]["creates_sandbox"] is False
     assert payload["commands"]["run"]["output"]["stdout"] == "string"
+    assert payload["commands"]["quickstart"]["creates_sandbox"] is False
+    assert payload["commands"]["quickstart"]["output"]["quickstart_command"] == "string"
+    assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
+    assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
+    assert payload["recommended_first_commands"][-1]["command"] == "sandbox quickstart --run"
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
+    assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
     assert payload["auth"]["setup_commands"][0] == "modal setup"
@@ -329,10 +336,121 @@ def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
+    assert payload["ready"] is False
+    assert payload["status"] == "needs_setup"
+    assert payload["problems"] == ["modal_credentials_missing"]
+    assert payload["next_steps"] == ["Run `uv run modal setup` before creating a live sandbox."]
     assert payload["modal_package"] == {"installed": True, "version": "1.4.3"}
     assert payload["credentials"]["status"] == "missing_or_unknown"
     assert payload["credentials"]["modal_toml"]["path"] == str(config_path)
+    assert payload["recommended_commands"][-1]["command"] == "uv run modal setup"
     assert payload["creates_modal_resources"] is False
     assert payload["setup_commands"][0] == "modal setup"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
+
+
+def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.setenv("MODAL_TOKEN_ID", "token-id")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "token-secret")
+
+    exit_code = cli.main(["doctor"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ready"] is True
+    assert payload["status"] == "ready"
+    assert payload["problems"] == []
+    assert payload["next_steps"] == [
+        "Run `sandbox quickstart --run` to create a short-lived sandbox and verify execution."
+    ]
+    assert payload["credentials"]["status"] == "configured_from_environment"
+    assert payload["creates_modal_resources"] is False
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    exit_code = cli.main(["quickstart"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "needs_setup"
+    assert payload["creates_modal_resources"] is False
+    assert payload["checks"]["ready"] is False
+    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox quickstart"]
+    assert payload["live_command"] == "sandbox quickstart --run"
+    assert payload["quickstart_command"] == "python -c 'print(123)'"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setenv("MODAL_TOKEN_ID", "token-id")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "token-secret")
+
+    exit_code = cli.main(
+        [
+            "--image",
+            "python:3.13-slim",
+            "--workspace",
+            "/work",
+            "--timeout",
+            "12",
+            "--sandbox-timeout",
+            "99",
+            "--region",
+            "us-east-1",
+            "--block-network",
+            "quickstart",
+            "--run",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["command"] == "python -c 'print(123)'"
+    assert payload["stdout"] == "ok\n"
+    assert payload["creates_modal_resources"] is True
+    assert payload["quickstart"]["creates_modal_resources"] is True
+    assert payload["quickstart"]["checks"]["ready"] is True
+    assert FakeSandbox.instances[-1].run_calls == [("python -c 'print(123)'", None)]
+    assert FakeSandbox.create_calls == [
+        {
+            "app_name": "modal-sandbox-sdk",
+            "workspace": "/work",
+            "image": "python:3.13-slim",
+            "workspace_volume": None,
+            "env": None,
+            "command_timeout": 12,
+            "sandbox_timeout": 99,
+            "cpu": None,
+            "memory": None,
+            "gpu": None,
+            "region": "us-east-1",
+            "block_network": True,
+            "sandbox_id": None,
+        }
+    ]

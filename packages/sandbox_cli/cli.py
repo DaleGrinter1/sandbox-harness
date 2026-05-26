@@ -18,7 +18,31 @@ SETUP_COMMANDS = [
 ]
 
 CLI_SCHEMA_VERSION = "1"
+QUICKSTART_COMMAND = "python -c 'print(123)'"
 _USE_ARG_SANDBOX_ID = object()
+
+RECOMMENDED_FIRST_COMMANDS = [
+    {
+        "command": "sandbox schema",
+        "creates_modal_resources": False,
+        "purpose": "Inspect the CLI contract before taking action.",
+    },
+    {
+        "command": "sandbox doctor",
+        "creates_modal_resources": False,
+        "purpose": "Check local Modal package and credential readiness.",
+    },
+    {
+        "command": "sandbox quickstart",
+        "creates_modal_resources": False,
+        "purpose": "Preview the first live sandbox command.",
+    },
+    {
+        "command": "sandbox quickstart --run",
+        "creates_modal_resources": True,
+        "purpose": "Create a short-lived Modal Sandbox and run a tiny Python command.",
+    },
+]
 
 COMPANION_MCPS = {
     "context7": {
@@ -176,17 +200,47 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "example": "sandbox schema",
     },
     "doctor": {
-        "summary": "Inspect local Modal package and credential setup without creating a sandbox.",
+        "summary": "Inspect local Modal package and credential setup, with beginner next steps.",
         "creates_sandbox": False,
         "arguments": {},
         "options": {},
         "output": {
+            "ready": "boolean",
+            "status": "string",
+            "problems": "string[]",
+            "next_steps": "string[]",
+            "recommended_commands": "object[]",
             "modal_package": "object",
             "credentials": "object",
             "setup_commands": "string[]",
             "creates_modal_resources": "false",
         },
         "example": "sandbox doctor",
+    },
+    "quickstart": {
+        "summary": "Preview or run the first beginner sandbox command.",
+        "creates_sandbox": False,
+        "arguments": {},
+        "options": {
+            "--run": "Create a short-lived Modal Sandbox and run the quickstart Python command.",
+            "global creation options": "With --run, supports --image, --workspace, --env, resources, and timeout flags.",
+        },
+        "output": {
+            "creates_modal_resources": "boolean",
+            "status": "string",
+            "checks": "object",
+            "safe_commands": "string[]",
+            "live_command": "string",
+            "quickstart_command": "string",
+            "command": "string when --run is used",
+            "stdout": "string when --run is used",
+            "stderr": "string when --run is used",
+            "exit_code": "integer|null when --run is used",
+            "duration_ms": "integer when --run is used",
+            "timed_out": "boolean when --run is used",
+            "quickstart": "object when --run is used",
+        },
+        "example": "sandbox quickstart --run",
     },
 }
 
@@ -303,6 +357,46 @@ def _credential_status() -> dict[str, object]:
     }
 
 
+def _recommended_setup_command() -> str:
+    return "uv run modal setup"
+
+
+def _readiness(modal_package: dict[str, object], credentials: dict[str, object]) -> dict[str, object]:
+    problems: list[str] = []
+    next_steps: list[str] = []
+
+    if not modal_package["installed"]:
+        problems.append("modal_package_not_installed")
+        next_steps.append("Install dependencies with `uv sync`.")
+
+    if credentials["status"] == "missing_or_unknown":
+        problems.append("modal_credentials_missing")
+        next_steps.append(f"Run `{_recommended_setup_command()}` before creating a live sandbox.")
+
+    ready = not problems
+    if ready:
+        next_steps.append("Run `sandbox quickstart --run` to create a short-lived sandbox and verify execution.")
+
+    return {
+        "ready": ready,
+        "status": "ready" if ready else "needs_setup",
+        "problems": problems,
+        "next_steps": next_steps,
+    }
+
+
+def _safe_quickstart_commands() -> list[str]:
+    return [
+        command["command"]
+        for command in RECOMMENDED_FIRST_COMMANDS
+        if command["creates_modal_resources"] is False
+    ]
+
+
+def _live_quickstart_command() -> str:
+    return "sandbox quickstart --run"
+
+
 def _schema_payload() -> dict[str, object]:
     return {
         "name": "sandbox",
@@ -333,6 +427,20 @@ def _schema_payload() -> dict[str, object]:
         },
         "lifecycle": {
             "creates_or_attaches_per_command": True,
+            "safe_discovery_commands": ["schema", "doctor", "quickstart"],
+            "live_modal_commands": [
+                "quickstart --run",
+                "start",
+                "stop",
+                "run",
+                "write",
+                "read",
+                "ls",
+                "mkdir",
+                "rm",
+                "upload",
+                "download",
+            ],
             "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
             "created_sandboxes_close_behavior": "terminate",
             "attached_sandboxes_close_behavior": "detach",
@@ -343,24 +451,60 @@ def _schema_payload() -> dict[str, object]:
             "setup_commands": SETUP_COMMANDS,
             "environment_variables": ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "MODAL_PROFILE"],
         },
+        "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
         "companion_mcps": COMPANION_MCPS,
         "commands": COMMANDS_SCHEMA,
     }
 
 
 def _doctor_payload() -> dict[str, object]:
+    modal_package = _modal_package_info()
     credentials = _credential_status()
+    readiness = _readiness(modal_package, credentials)
+    recommended_commands = [*RECOMMENDED_FIRST_COMMANDS]
+    if credentials["status"] == "missing_or_unknown":
+        recommended_commands.append(
+            {
+                "command": _recommended_setup_command(),
+                "creates_modal_resources": False,
+                "purpose": "Sign in to Modal when credentials are missing.",
+            }
+        )
+
     return {
-        "modal_package": _modal_package_info(),
+        **readiness,
+        "modal_package": modal_package,
         "credentials": credentials,
         "ready_hint": (
             "Modal credentials appear to be configured."
             if credentials["status"] != "missing_or_unknown"
             else "Modal credentials were not found. Run modal setup before creating a sandbox."
         ),
+        "recommended_commands": recommended_commands,
         "setup_commands": SETUP_COMMANDS,
         "creates_modal_resources": False,
-        "next_safe_command": "sandbox schema",
+        "next_safe_command": "sandbox quickstart",
+    }
+
+
+def _quickstart_payload(*, creates_modal_resources: bool) -> dict[str, object]:
+    modal_package = _modal_package_info()
+    credentials = _credential_status()
+    readiness = _readiness(modal_package, credentials)
+    live_command = _live_quickstart_command()
+    return {
+        "status": "ready_to_run" if readiness["ready"] else "needs_setup",
+        "creates_modal_resources": creates_modal_resources,
+        "checks": {
+            "ready": readiness["ready"],
+            "modal_package": modal_package,
+            "credentials": credentials,
+            "problems": readiness["problems"],
+        },
+        "next_steps": readiness["next_steps"],
+        "safe_commands": _safe_quickstart_commands(),
+        "live_command": live_command,
+        "quickstart_command": QUICKSTART_COMMAND,
     }
 
 
@@ -381,6 +525,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Agent-friendly discovery:\n"
             "  sandbox schema            Print command metadata, output shapes, and examples as JSON.\n"
             "  sandbox doctor            Inspect local Modal setup without creating a sandbox.\n"
+            "  sandbox quickstart        Preview the first live sandbox command as JSON.\n"
             "  sandbox --image ... start Create a reusable sandbox and print its ID.\n\n"
             "First time using Modal? Run `modal setup` to sign in. "
             "For headless environments, set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET."
@@ -451,6 +596,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
 
+    quickstart_parser = subparsers.add_parser("quickstart", help="Preview or run the beginner quickstart.")
+    quickstart_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="Create a short-lived sandbox and run the quickstart command.",
+    )
+
     return parser
 
 
@@ -474,8 +626,23 @@ def main(argv: list[str] | None = None) -> int:
         _print_json(_doctor_payload())
         return 0
 
+    if args.command_name == "quickstart" and not args.run:
+        _print_json(_quickstart_payload(creates_modal_resources=False))
+        return 0
+
     sandbox: Sandbox | None = None
     try:
+        if args.command_name == "quickstart":
+            if args.sandbox_id:
+                parser.error("--sandbox-id cannot be used with quickstart --run")
+            sandbox = _sandbox_from_args(args)
+            result = sandbox.run(QUICKSTART_COMMAND)
+            payload = result.to_dict()
+            payload["creates_modal_resources"] = True
+            payload["quickstart"] = _quickstart_payload(creates_modal_resources=True)
+            _print_json(payload)
+            return 0
+
         if args.command_name == "start":
             if args.sandbox_id:
                 parser.error("--sandbox-id cannot be used with start")
