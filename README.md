@@ -24,6 +24,27 @@ with Sandbox.create(workspace_volume="my-workspace") as sb:
     sb.write_text("notes.txt", "persistent content\n")
 ```
 
+## SDK Methods
+
+The `Sandbox` object exposes a small synchronous API:
+
+```python
+sb.run("python hello.py")
+sb.write_text("hello.py", "print('hello')\n")
+sb.read_text("hello.py")
+sb.write_bytes("data.bin", b"hello")
+sb.read_bytes("data.bin")
+sb.list_files(".")
+sb.mkdir("notes")
+sb.remove("notes", recursive=True)
+sb.copy_from_local("local.txt", "remote.txt")
+sb.copy_to_local("remote.txt", "local.txt")
+sb.close()
+```
+
+Relative paths are resolved inside the sandbox workspace. Absolute paths are
+used as-is inside the sandbox.
+
 ## CLI
 
 ```bash
