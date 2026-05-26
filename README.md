@@ -188,6 +188,20 @@ artifacts for agents and are not required at package runtime. For a new user,
 start with `skills/modal-sandbox-first-run/SKILL.md`; use the other focused
 skills for CLI workflows, file workflows, and Python SDK workflows.
 
+To use a skill with an agent, point the agent at the relevant `SKILL.md` and
+ask it to follow that workflow. Suggested starting prompts:
+
+```text
+Use skills/modal-sandbox-first-run/SKILL.md to help me verify my Modal setup.
+Use skills/modal-sandbox-cli-workflows/SKILL.md to run this command safely.
+Use skills/modal-sandbox-file-workflows/SKILL.md to persist files across CLI calls.
+Use skills/modal-sandbox-python-sdk/SKILL.md to write Python code with this SDK.
+```
+
+These skills are portable Markdown instructions. They do not install
+automatically, do not affect package imports, and can be copied into an
+agent-specific skills directory if that agent supports one.
+
 Run a command:
 
 ```bash
@@ -398,3 +412,8 @@ Live Modal tests are opt-in:
 ```bash
 MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
 ```
+
+The live suite creates real Modal resources and covers the beginner acceptance
+path: SDK file helpers, `quickstart --run`, CLI file persistence with a
+workspace volume, and `start`/`--sandbox-id`/`stop`. The persistent volume test
+uses a unique volume name and deletes it in cleanup.
