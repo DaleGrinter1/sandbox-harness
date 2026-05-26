@@ -36,6 +36,12 @@ Preview the first live sandbox command:
 uv run sandbox quickstart
 ```
 
+See copy-paste workflows without creating Modal resources:
+
+```bash
+uv run sandbox recipes
+```
+
 If `doctor` reports missing credentials, sign in to Modal:
 
 ```bash
@@ -51,13 +57,13 @@ uv run python -m modal setup
 Run the beginner quickstart in a short-lived Modal Sandbox:
 
 ```bash
-uv run sandbox --image python:3.13-slim quickstart --run
+uv run sandbox --image py313 quickstart --run
 ```
 
 Then run any command:
 
 ```bash
-uv run sandbox --image python:3.13-slim run "python -c 'print(123)'"
+uv run sandbox --image py313 run "python -c 'print(123)'"
 ```
 
 ## Python SDK
@@ -140,6 +146,7 @@ Agent-friendly discovery commands do not create Modal resources:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
+uv run sandbox recipes
 uv run sandbox quickstart
 ```
 
@@ -148,9 +155,13 @@ rules, optional companion MCPs, auth setup commands, and examples as JSON.
 `sandbox doctor` reports whether the Modal Python package is importable and
 whether credentials appear to be configured through environment variables or
 `~/.modal.toml`, plus beginner next steps.
+`sandbox recipes` prints beginner workflow recipes as JSON.
 `sandbox quickstart` previews a first live command without creating resources.
 Use `sandbox quickstart --run` to create a short-lived sandbox and run
 `python -c 'print(123)'`.
+
+The CLI accepts registry tags such as `python:3.13-slim` and beginner aliases
+such as `py313`, `py312`, `py311`, and `ubuntu24`.
 
 ## For AI Agents
 
@@ -159,28 +170,34 @@ Use the safe discovery sequence before creating Modal resources:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
+uv run sandbox recipes
 uv run sandbox quickstart
 ```
 
 If `doctor` reports `ready: true`, the first live verification command is:
 
 ```bash
-uv run sandbox --image python:3.13-slim quickstart --run
+uv run sandbox --image py313 quickstart --run
 ```
 
 After that, use `sandbox run` for one-off commands or `sandbox start` plus
 `--sandbox-id` for a longer workflow.
 
+Optional repo-local Codex-style skills live in `skills/`. They are source
+artifacts for agents and are not required at package runtime. For a new user,
+start with `skills/modal-sandbox-first-run/SKILL.md`; use the other focused
+skills for CLI workflows, file workflows, and Python SDK workflows.
+
 Run a command:
 
 ```bash
-uv run sandbox --image python:3.13-slim run "python -c 'print(123)'"
+uv run sandbox --image py313 run "python -c 'print(123)'"
 ```
 
 Create a reusable sandbox for a longer agent workflow:
 
 ```bash
-uv run sandbox --image python:3.13-slim start
+uv run sandbox --image py313 start
 ```
 
 The output includes a `sandbox_id`. Reuse it with `--sandbox-id`:
@@ -209,17 +226,32 @@ uv run sandbox run --use-command-exit-code "python -c 'raise SystemExit(7)'"
 Run a small file workflow with a persistent workspace volume:
 
 ```bash
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace write game.py --content "print('hello')"
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace ls .
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace run --cwd /workspace "python game.py"
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace read game.py
+uv run sandbox --image py313 --workspace-volume my-workspace write game.py --content "print('hello')"
+uv run sandbox --image py313 --workspace-volume my-workspace ls .
+uv run sandbox --image py313 --workspace-volume my-workspace run --cwd /workspace "python game.py"
+uv run sandbox --image py313 --workspace-volume my-workspace read game.py
 ```
 
 Copy files in and out:
 
 ```bash
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace upload input.txt input.txt
-uv run sandbox --image python:3.13-slim --workspace-volume my-workspace download output.txt output.txt
+uv run sandbox --image py313 --workspace-volume my-workspace upload input.txt input.txt
+uv run sandbox --image py313 --workspace-volume my-workspace download output.txt output.txt
+```
+
+## Examples
+
+Small examples live in `examples/`:
+
+- `examples/run_python.py`: create a sandbox, write a Python file, and run it.
+- `examples/cli_file_workflow.sh`: write, run, and read a file with the CLI.
+- `examples/persistent_volume.sh`: keep files across sandbox lifetimes with a
+  Modal volume.
+
+The same workflow ideas are available as JSON:
+
+```bash
+uv run sandbox recipes
 ```
 
 Create and remove directories:
@@ -249,6 +281,46 @@ Stop long-lived sandboxes explicitly:
 ```bash
 uv run sandbox stop sb-abc123
 ```
+
+## Common Problems
+
+**Modal credentials are missing.**
+
+Run:
+
+```bash
+uv run sandbox doctor
+uv run modal setup
+```
+
+For CI or other non-interactive environments, use `uv run modal token new` and
+then configure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`.
+
+**I do not know which commands create Modal resources.**
+
+Safe discovery commands are:
+
+```bash
+uv run sandbox schema
+uv run sandbox doctor
+uv run sandbox recipes
+uv run sandbox quickstart
+```
+
+Commands such as `quickstart --run`, `run`, `write`, `read`, `ls`, `upload`,
+`download`, `start`, and `stop` contact Modal.
+
+**My file disappeared after a command.**
+
+One-shot sandboxes are terminated when the command finishes. Use
+`--workspace-volume my-workspace` when separate CLI calls should share files,
+or use `sandbox start` plus `--sandbox-id` for one live workflow.
+
+**Should I use `start` or `--workspace-volume`?**
+
+Use `start` when a short sequence of commands should share one running sandbox.
+Use `--workspace-volume` when files should persist across separate sandbox
+lifetimes.
 
 ## Agent And MCP Notes
 

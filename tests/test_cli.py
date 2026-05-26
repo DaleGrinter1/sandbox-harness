@@ -285,6 +285,7 @@ def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypat
     assert exc.value.code == 1
     assert captured.out == ""
     assert "sandbox: error: Run modal setup before using Modal sandboxes." in captured.err
+    assert "Run `sandbox doctor` to inspect local setup without creating Modal resources." in captured.err
 
 
 def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
@@ -306,9 +307,12 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert payload["commands"]["quickstart"]["creates_sandbox"] is False
     assert payload["commands"]["quickstart"]["output"]["quickstart_command"] == "string"
     assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
+    assert payload["commands"]["recipes"]["creates_sandbox"] is False
+    assert payload["image_aliases"]["py313"] == "python:3.13-slim"
+    assert payload["recipes"][0]["name"] == "first_run"
     assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
     assert payload["recommended_first_commands"][-1]["command"] == "sandbox quickstart --run"
-    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "recipes", "quickstart"]
     assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
@@ -317,6 +321,29 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert payload["companion_mcps"]["google_mcp_collection"]["url"] == "https://github.com/google/mcp"
     assert payload["companion_mcps"]["notion"]["url"] == "https://mcp.notion.com/mcp"
     assert payload["companion_mcps"]["slack"]["url"] == "https://mcp.slack.com/mcp"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_recipes_outputs_beginner_workflows_without_creating_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["recipes"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["creates_modal_resources"] is False
+    assert payload["image_aliases"]["ubuntu24"] == "ubuntu:24.04"
+    assert [recipe["name"] for recipe in payload["recipes"]] == [
+        "first_run",
+        "cli_file_workflow",
+        "persistent_volume",
+        "long_lived_agent_workflow",
+    ]
+    assert payload["next_safe_command"] == "sandbox doctor"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -395,7 +422,7 @@ def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp
     assert payload["status"] == "needs_setup"
     assert payload["creates_modal_resources"] is False
     assert payload["checks"]["ready"] is False
-    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox quickstart"]
+    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox recipes", "sandbox quickstart"]
     assert payload["live_command"] == "sandbox quickstart --run"
     assert payload["quickstart_command"] == "python -c 'print(123)'"
     assert FakeSandbox.create_calls == []
@@ -414,7 +441,7 @@ def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypa
     exit_code = cli.main(
         [
             "--image",
-            "python:3.13-slim",
+            "py313",
             "--workspace",
             "/work",
             "--timeout",

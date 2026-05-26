@@ -46,3 +46,36 @@ def test_image_presets_are_registry_tags() -> None:
 
 def test_python_version_file_pins_local_development_runtime() -> None:
     assert Path(".python-version").read_text(encoding="utf-8").strip() == "3.13"
+
+
+def test_beginner_examples_are_present() -> None:
+    examples = Path("examples")
+
+    assert (examples / "run_python.py").read_text(encoding="utf-8")
+    assert (examples / "cli_file_workflow.sh").read_text(encoding="utf-8").startswith("#!/usr/bin/env sh")
+    assert (examples / "persistent_volume.sh").read_text(encoding="utf-8").startswith("#!/usr/bin/env sh")
+
+
+def test_repo_local_skills_are_model_neutral_source_artifacts() -> None:
+    expected_skills = {
+        "modal-sandbox-first-run",
+        "modal-sandbox-cli-workflows",
+        "modal-sandbox-file-workflows",
+        "modal-sandbox-python-sdk",
+    }
+    skills_root = Path("skills")
+    skill_dirs = {path.name for path in skills_root.iterdir() if path.is_dir()}
+
+    assert skill_dirs == expected_skills
+
+    for skill_name in expected_skills:
+        skill_dir = skills_root / skill_name
+        skill_file = skill_dir / "SKILL.md"
+        content = skill_file.read_text(encoding="utf-8")
+        frontmatter = content.split("---", 2)[1].strip()
+        metadata = dict(line.split(": ", 1) for line in frontmatter.splitlines())
+
+        assert set(metadata) == {"name", "description"}
+        assert metadata["name"] == skill_name
+        assert metadata["description"]
+        assert not (skill_dir / "agents" / "openai.yaml").exists()

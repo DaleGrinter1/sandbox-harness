@@ -7,7 +7,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from sandbox import Sandbox
+from sandbox import Images, Sandbox
 
 
 SETUP_COMMANDS = [
@@ -21,6 +21,20 @@ CLI_SCHEMA_VERSION = "1"
 QUICKSTART_COMMAND = "python -c 'print(123)'"
 _USE_ARG_SANDBOX_ID = object()
 
+IMAGE_ALIASES = {
+    "py313": Images.PY313,
+    "python313": Images.PY313,
+    "python-313": Images.PY313,
+    "py312": Images.PY312,
+    "python312": Images.PY312,
+    "python-312": Images.PY312,
+    "py311": Images.PY311,
+    "python311": Images.PY311,
+    "python-311": Images.PY311,
+    "ubuntu24": Images.UBUNTU24,
+    "ubuntu-24": Images.UBUNTU24,
+}
+
 RECOMMENDED_FIRST_COMMANDS = [
     {
         "command": "sandbox schema",
@@ -33,6 +47,11 @@ RECOMMENDED_FIRST_COMMANDS = [
         "purpose": "Check local Modal package and credential readiness.",
     },
     {
+        "command": "sandbox recipes",
+        "creates_modal_resources": False,
+        "purpose": "Choose a beginner workflow before creating resources.",
+    },
+    {
         "command": "sandbox quickstart",
         "creates_modal_resources": False,
         "purpose": "Preview the first live sandbox command.",
@@ -41,6 +60,50 @@ RECOMMENDED_FIRST_COMMANDS = [
         "command": "sandbox quickstart --run",
         "creates_modal_resources": True,
         "purpose": "Create a short-lived Modal Sandbox and run a tiny Python command.",
+    },
+]
+
+RECIPES = [
+    {
+        "name": "first_run",
+        "summary": "Verify that a short-lived Modal Sandbox can run Python.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox doctor",
+            "sandbox quickstart",
+            "sandbox --image py313 quickstart --run",
+        ],
+    },
+    {
+        "name": "cli_file_workflow",
+        "summary": "Write code into a sandbox workspace, run it, and read it back.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox --image py313 --workspace-volume my-workspace write hello.py --content \"print('hello from sandbox')\"",
+            "sandbox --image py313 --workspace-volume my-workspace run \"python hello.py\"",
+            "sandbox --image py313 --workspace-volume my-workspace read hello.py",
+        ],
+    },
+    {
+        "name": "persistent_volume",
+        "summary": "Keep files across separate sandbox lifetimes with a Modal volume.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox --image py313 --workspace-volume my-workspace write notes.txt --content \"persistent content\"",
+            "sandbox --image py313 --workspace-volume my-workspace ls .",
+            "sandbox --image py313 --workspace-volume my-workspace read notes.txt",
+        ],
+    },
+    {
+        "name": "long_lived_agent_workflow",
+        "summary": "Create one live sandbox, reuse it with --sandbox-id, then stop it.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox --image py313 start",
+            "sandbox --sandbox-id <sandbox_id> write hello.py --content \"print('hello')\"",
+            "sandbox --sandbox-id <sandbox_id> run \"python hello.py\"",
+            "sandbox stop <sandbox_id>",
+        ],
     },
 ]
 
@@ -199,6 +262,18 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "output": {"schema_version": "string", "commands": "object"},
         "example": "sandbox schema",
     },
+    "recipes": {
+        "summary": "Print beginner workflow recipes as JSON without creating Modal resources.",
+        "creates_sandbox": False,
+        "arguments": {},
+        "options": {},
+        "output": {
+            "creates_modal_resources": "false",
+            "recipes": "object[]",
+            "image_aliases": "object",
+        },
+        "example": "sandbox recipes",
+    },
     "doctor": {
         "summary": "Inspect local Modal package and credential setup, with beginner next steps.",
         "creates_sandbox": False,
@@ -258,13 +333,19 @@ def _parse_env(values: list[str]) -> dict[str, str]:
     return env
 
 
+def _resolve_cli_image(image: str | None) -> str | None:
+    if image is None:
+        return None
+    return IMAGE_ALIASES.get(image.lower(), image)
+
+
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
     """Create a sandbox from parsed CLI flags."""
     effective_sandbox_id = args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id
     return Sandbox.create(
         app_name=args.app_name,
         workspace=args.workspace,
-        image=args.image,
+        image=_resolve_cli_image(args.image),
         workspace_volume=args.workspace_volume,
         env=_parse_env(args.env) if args.env else None,
         command_timeout=args.timeout,
@@ -408,7 +489,7 @@ def _schema_payload() -> dict[str, object]:
         "global_options": {
             "--app-name": "Modal app name used for sandbox creation.",
             "--workspace": "Default sandbox directory for relative paths.",
-            "--image": "Registry image tag passed to Modal.",
+            "--image": "Registry image tag or supported alias passed to Modal.",
             "--workspace-volume": "Modal volume name mounted at the workspace path.",
             "--env KEY=VALUE": "Environment variable passed to the sandbox. Repeatable.",
             "--timeout": "Command timeout in seconds for run.",
@@ -427,7 +508,7 @@ def _schema_payload() -> dict[str, object]:
         },
         "lifecycle": {
             "creates_or_attaches_per_command": True,
-            "safe_discovery_commands": ["schema", "doctor", "quickstart"],
+            "safe_discovery_commands": ["schema", "doctor", "recipes", "quickstart"],
             "live_modal_commands": [
                 "quickstart --run",
                 "start",
@@ -451,7 +532,9 @@ def _schema_payload() -> dict[str, object]:
             "setup_commands": SETUP_COMMANDS,
             "environment_variables": ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "MODAL_PROFILE"],
         },
+        "image_aliases": IMAGE_ALIASES,
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
+        "recipes": RECIPES,
         "companion_mcps": COMPANION_MCPS,
         "commands": COMMANDS_SCHEMA,
     }
@@ -508,6 +591,15 @@ def _quickstart_payload(*, creates_modal_resources: bool) -> dict[str, object]:
     }
 
 
+def _recipes_payload() -> dict[str, object]:
+    return {
+        "creates_modal_resources": False,
+        "image_aliases": IMAGE_ALIASES,
+        "recipes": RECIPES,
+        "next_safe_command": "sandbox doctor",
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser.
 
@@ -525,6 +617,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Agent-friendly discovery:\n"
             "  sandbox schema            Print command metadata, output shapes, and examples as JSON.\n"
             "  sandbox doctor            Inspect local Modal setup without creating a sandbox.\n"
+            "  sandbox recipes           Print beginner workflow recipes as JSON.\n"
             "  sandbox quickstart        Preview the first live sandbox command as JSON.\n"
             "  sandbox --image ... start Create a reusable sandbox and print its ID.\n\n"
             "First time using Modal? Run `modal setup` to sign in. "
@@ -537,7 +630,7 @@ def build_parser() -> argparse.ArgumentParser:
     # shell usage and Python usage teach the same mental model.
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
     parser.add_argument("--workspace", default="/workspace")
-    parser.add_argument("--image")
+    parser.add_argument("--image", help="Registry image tag or alias such as py313, py312, py311, or ubuntu24.")
     parser.add_argument("--workspace-volume")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--timeout", type=int, default=30)
@@ -594,6 +687,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
 
+    subparsers.add_parser("recipes", help="Print beginner workflow recipes without creating a sandbox.")
+
     subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
 
     quickstart_parser = subparsers.add_parser("quickstart", help="Preview or run the beginner quickstart.")
@@ -620,6 +715,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command_name == "schema":
         _print_json(_schema_payload())
+        return 0
+
+    if args.command_name == "recipes":
+        _print_json(_recipes_payload())
         return 0
 
     if args.command_name == "doctor":
@@ -703,7 +802,10 @@ def main(argv: list[str] | None = None) -> int:
     except argparse.ArgumentTypeError as exc:
         parser.exit(2, f"sandbox: error: {exc}\n")
     except Exception as exc:
-        parser.exit(1, f"sandbox: error: {exc}\n")
+        parser.exit(
+            1,
+            f"sandbox: error: {exc}\nRun `sandbox doctor` to inspect local setup without creating Modal resources.\n",
+        )
     finally:
         if sandbox is not None:
             sandbox.close()
