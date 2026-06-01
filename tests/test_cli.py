@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
-
 from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig
 from sandbox_cli import cli
 
@@ -11,24 +11,27 @@ from sandbox_cli import cli
 class FakeSandbox:
     create_calls: list[dict[str, object]] = []
     from_id_calls: list[dict[str, object]] = []
-    instances: list["FakeSandbox"] = []
+    instances: list[FakeSandbox] = []
     raise_auth_error = False
 
     @classmethod
-    def create(cls, **kwargs: object) -> "FakeSandbox":
+    def create(cls, **kwargs: object) -> FakeSandbox:
         if cls.raise_auth_error:
             raise ModalAuthenticationError("Run modal setup before using Modal sandboxes.")
         sandbox = cls()
+        sandbox_timeout = kwargs.get("sandbox_timeout", 300)
+        max_output_bytes = kwargs.get("max_output_bytes")
         sandbox.config = SandboxConfig(
             workspace=str(kwargs.get("workspace", "/workspace")),
-            sandbox_timeout=int(kwargs.get("sandbox_timeout", 300)),
+            sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
+            max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
         )
         cls.create_calls.append(kwargs)
         cls.instances.append(sandbox)
         return sandbox
 
     @classmethod
-    def from_id(cls, sandbox_id: str, **kwargs: object) -> "FakeSandbox":
+    def from_id(cls, sandbox_id: str, **kwargs: object) -> FakeSandbox:
         sandbox = cls(sandbox_id=sandbox_id)
         cls.from_id_calls.append({"sandbox_id": sandbox_id, **kwargs})
         cls.instances.append(sandbox)
@@ -45,11 +48,11 @@ class FakeSandbox:
         self.detached = False
         self.terminated = False
 
-    def run(self, command: str, cwd: str | None = None) -> CommandResult:
+    def run(self, command: str, cwd: str | None = None, max_output_bytes: int | None = None) -> CommandResult:
         self.run_calls.append((command, cwd))
         if command == "sh -c 'exit 7'":
-            return CommandResult(command, "", "", 7, 1)
-        return CommandResult(command, "ok\n", "", 0, 1)
+            return CommandResult(command, "", "", 7, 1, max_output_bytes=max_output_bytes)
+        return CommandResult(command, "ok\n", "", 0, 1, max_output_bytes=max_output_bytes)
 
     def write_text(self, path: str, content: str) -> None:
         self.written = (path, content)
@@ -133,6 +136,7 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
             "gpu": "T4",
             "region": "us-east-1",
             "block_network": True,
+            "max_output_bytes": 10 * 1024 * 1024,
             "sandbox_id": None,
         }
     ]
@@ -157,6 +161,35 @@ def test_cli_write_read_and_ls(monkeypatch, capsys) -> None:
     assert ls_payload == {"files": ["game.py"], "path": "."}
 
 
+def test_cli_write_accepts_content_file(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    content_file = tmp_path / "input.py"
+    content_file.write_text("print('from file')\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    assert cli.main(["write", "game.py", "--content-file", str(content_file)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"path": "game.py", "status": "wrote"}
+    assert FakeSandbox.instances[-1].written == ("game.py", "print('from file')\n")
+
+
+def test_cli_write_accepts_stdin(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(sys, "stdin", type("FakeStdin", (), {"read": lambda self: "print('stdin')\n"})())
+
+    assert cli.main(["write", "game.py", "--stdin"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"path": "game.py", "status": "wrote"}
+    assert FakeSandbox.instances[-1].written == ("game.py", "print('stdin')\n")
+
+
 def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -169,6 +202,20 @@ def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) 
     assert exit_code == 7
     assert payload["exit_code"] == 7
     assert FakeSandbox.instances[-1].run_calls == [("sh -c 'exit 7'", "/tmp")]
+
+
+def test_cli_run_passes_max_output_bytes(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--max-output-bytes", "2048", "run", "echo ok"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["max_output_bytes"] == 2048
+    assert FakeSandbox.create_calls[-1]["max_output_bytes"] == 2048
 
 
 def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
@@ -213,6 +260,7 @@ def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeyp
             "app_name": "modal-sandbox-sdk",
             "command_timeout": 30,
             "ensure_workspace": False,
+            "max_output_bytes": 10 * 1024 * 1024,
             "sandbox_id": "sb-123",
             "sandbox_timeout": 300,
             "workspace": "/workspace",
@@ -269,7 +317,10 @@ def test_cli_invalid_env_reports_error_without_traceback(monkeypatch, capsys) ->
     captured = capsys.readouterr()
     assert exc.value.code == 2
     assert captured.out == ""
-    assert "sandbox: error: --env values must use KEY=VALUE" in captured.err
+    payload = json.loads(captured.err)
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == "--env values must use KEY=VALUE"
 
 
 def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypatch, capsys) -> None:
@@ -284,8 +335,47 @@ def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypat
     captured = capsys.readouterr()
     assert exc.value.code == 1
     assert captured.out == ""
-    assert "sandbox: error: Run modal setup before using Modal sandboxes." in captured.err
-    assert "Run `sandbox doctor` to inspect local setup without creating Modal resources." in captured.err
+    payload = json.loads(captured.err)
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "modal_authentication_error"
+    assert payload["error"]["message"] == "Run modal setup before using Modal sandboxes."
+    assert payload["error"]["next_steps"] == [
+        "Run `sandbox doctor` to inspect local setup without creating Modal resources."
+    ]
+
+
+def test_cli_missing_write_content_reports_json_argument_error(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["write", "game.py"])
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["type"] == "argument_error"
+    assert "one of the arguments --content --content-file --stdin is required" in payload["error"]["message"]
+
+
+def test_cli_write_input_options_are_mutually_exclusive(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["write", "game.py", "--content", "x", "--stdin"])
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["type"] == "argument_error"
+    assert "not allowed with argument" in payload["error"]["message"]
 
 
 def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
@@ -304,9 +394,13 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert payload["commands"]["start"]["output"]["sandbox_id"] == "string"
     assert payload["commands"]["stop"]["creates_sandbox"] is False
     assert payload["commands"]["run"]["output"]["stdout"] == "string"
+    assert payload["commands"]["run"]["output"]["stdout_truncated"] == "boolean"
     assert payload["commands"]["quickstart"]["creates_sandbox"] is False
     assert payload["commands"]["quickstart"]["output"]["quickstart_command"] == "string"
     assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
+    assert payload["global_options"]["--max-output-bytes"] == (
+        "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760."
+    )
     assert payload["commands"]["recipes"]["creates_sandbox"] is False
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
     assert payload["recipes"][0]["name"] == "first_run"
@@ -478,6 +572,7 @@ def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypa
             "gpu": None,
             "region": "us-east-1",
             "block_network": True,
+            "max_output_bytes": 10 * 1024 * 1024,
             "sandbox_id": None,
         }
     ]

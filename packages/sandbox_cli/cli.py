@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import os
 import json
+import os
+import sys
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, cast
 
-from sandbox import Images, Sandbox
-
+from sandbox import Images, ModalAuthenticationError, Sandbox
 
 SETUP_COMMANDS = [
     "modal setup",
@@ -19,6 +19,7 @@ SETUP_COMMANDS = [
 
 CLI_SCHEMA_VERSION = "1"
 QUICKSTART_COMMAND = "python -c 'print(123)'"
+DEFAULT_ERROR_NEXT_STEPS = ["Run `sandbox doctor` to inspect local setup without creating Modal resources."]
 _USE_ARG_SANDBOX_ID = object()
 
 IMAGE_ALIASES = {
@@ -80,7 +81,7 @@ RECIPES = [
         "creates_modal_resources": True,
         "commands": [
             "sandbox --image py313 --workspace-volume my-workspace write hello.py --content \"print('hello from sandbox')\"",
-            "sandbox --image py313 --workspace-volume my-workspace run \"python hello.py\"",
+            'sandbox --image py313 --workspace-volume my-workspace run "python hello.py"',
             "sandbox --image py313 --workspace-volume my-workspace read hello.py",
         ],
     },
@@ -89,7 +90,7 @@ RECIPES = [
         "summary": "Keep files across separate sandbox lifetimes with a Modal volume.",
         "creates_modal_resources": True,
         "commands": [
-            "sandbox --image py313 --workspace-volume my-workspace write notes.txt --content \"persistent content\"",
+            'sandbox --image py313 --workspace-volume my-workspace write notes.txt --content "persistent content"',
             "sandbox --image py313 --workspace-volume my-workspace ls .",
             "sandbox --image py313 --workspace-volume my-workspace read notes.txt",
         ],
@@ -101,7 +102,7 @@ RECIPES = [
         "commands": [
             "sandbox --image py313 start",
             "sandbox --sandbox-id <sandbox_id> write hello.py --content \"print('hello')\"",
-            "sandbox --sandbox-id <sandbox_id> run \"python hello.py\"",
+            'sandbox --sandbox-id <sandbox_id> run "python hello.py"',
             "sandbox stop <sandbox_id>",
         ],
     },
@@ -181,6 +182,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {
             "--cwd": "Working directory inside the sandbox.",
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
+            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately.",
         },
         "output": {
             "command": "string",
@@ -189,14 +191,21 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "exit_code": "integer|null",
             "duration_ms": "integer",
             "timed_out": "boolean",
+            "stdout_truncated": "boolean",
+            "stderr_truncated": "boolean",
+            "max_output_bytes": "integer|null",
         },
-        "example": 'sandbox --image python:3.13-slim run "python -c \'print(123)\'"',
+        "example": "sandbox --image python:3.13-slim run \"python -c 'print(123)'\"",
     },
     "write": {
         "summary": "Write UTF-8 text to a file inside the sandbox workspace.",
         "creates_sandbox": True,
         "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {"--content": "Text content to write."},
+        "options": {
+            "--content": "Inline text content to write.",
+            "--content-file": "Local UTF-8 text file to read and write.",
+            "--stdin": "Read UTF-8 text from standard input.",
+        },
         "output": {"path": "string", "status": "wrote"},
         "example": 'sandbox --workspace-volume work write hello.py --content "print(123)"',
     },
@@ -313,6 +322,9 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "exit_code": "integer|null when --run is used",
             "duration_ms": "integer when --run is used",
             "timed_out": "boolean when --run is used",
+            "stdout_truncated": "boolean when --run is used",
+            "stderr_truncated": "boolean when --run is used",
+            "max_output_bytes": "integer|null when --run is used",
             "quickstart": "object when --run is used",
         },
         "example": "sandbox quickstart --run",
@@ -333,6 +345,16 @@ def _parse_env(values: list[str]) -> dict[str, str]:
     return env
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def _resolve_cli_image(image: str | None) -> str | None:
     if image is None:
         return None
@@ -341,7 +363,7 @@ def _resolve_cli_image(image: str | None) -> str | None:
 
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
     """Create a sandbox from parsed CLI flags."""
-    effective_sandbox_id = args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id
+    effective_sandbox_id = cast(str | None, args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id)
     return Sandbox.create(
         app_name=args.app_name,
         workspace=args.workspace,
@@ -355,13 +377,38 @@ def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | obj
         gpu=args.gpu,
         region=args.region,
         block_network=args.block_network,
+        max_output_bytes=args.max_output_bytes,
         sandbox_id=effective_sandbox_id,
     )
 
 
-def _print_json(payload: Any) -> None:
+def _print_json(payload: Any, *, file: Any = None) -> None:
     """Print a JSON response for shell-friendly CLI output."""
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    print(json.dumps(payload, indent=2, sort_keys=True), file=file or sys.stdout)
+
+
+def _error_payload(error_type: str, message: str, exit_code: int) -> dict[str, object]:
+    return {
+        "status": "error",
+        "error": {
+            "type": error_type,
+            "message": message,
+            "exit_code": exit_code,
+            "next_steps": DEFAULT_ERROR_NEXT_STEPS,
+        },
+    }
+
+
+def _exit_with_error(parser: argparse.ArgumentParser, error_type: str, message: str, exit_code: int) -> NoReturn:
+    _print_json(_error_payload(error_type, message, exit_code), file=sys.stderr)
+    parser.exit(exit_code)
+
+
+class JsonArgumentParser(argparse.ArgumentParser):
+    """Argument parser that keeps failures machine-readable."""
+
+    def error(self, message: str) -> None:
+        _exit_with_error(self, "argument_error", message, 2)
 
 
 def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
@@ -384,7 +431,7 @@ def _start_payload(sandbox: Sandbox) -> dict[str, object]:
         "status": "started",
         "workspace": sandbox.config.workspace,
         "sandbox_timeout": sandbox.config.sandbox_timeout,
-        "use_command": f"sandbox --sandbox-id {sandbox_id} run \"python --version\"",
+        "use_command": f'sandbox --sandbox-id {sandbox_id} run "python --version"',
         "stop_command": f"sandbox stop {sandbox_id}",
     }
 
@@ -467,11 +514,7 @@ def _readiness(modal_package: dict[str, object], credentials: dict[str, object])
 
 
 def _safe_quickstart_commands() -> list[str]:
-    return [
-        command["command"]
-        for command in RECOMMENDED_FIRST_COMMANDS
-        if command["creates_modal_resources"] is False
-    ]
+    return [command["command"] for command in RECOMMENDED_FIRST_COMMANDS if command["creates_modal_resources"] is False]
 
 
 def _live_quickstart_command() -> str:
@@ -500,6 +543,7 @@ def _schema_payload() -> dict[str, object]:
             "--region": "Region preference passed through to Modal.",
             "--block-network": "Block outbound network access from the sandbox.",
             "--sandbox-id": "Attach to an existing Modal sandbox instead of creating one.",
+            "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760.",
         },
         "path_rules": {
             "relative_paths": "Resolved inside the sandbox workspace.",
@@ -607,7 +651,7 @@ def build_parser() -> argparse.ArgumentParser:
         Parser configured with global sandbox creation flags and operational
         subcommands.
     """
-    parser = argparse.ArgumentParser(
+    parser = JsonArgumentParser(
         prog="sandbox",
         description=(
             "Run commands and file workflows inside Modal Sandboxes. "
@@ -641,9 +685,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--region")
     parser.add_argument("--block-network", action="store_true")
     parser.add_argument("--sandbox-id")
+    parser.add_argument("--max-output-bytes", type=_positive_int, default=10 * 1024 * 1024)
     parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
 
-    subparsers = parser.add_subparsers(dest="command_name", required=True)
+    subparsers = parser.add_subparsers(dest="command_name", required=True, parser_class=JsonArgumentParser)
 
     subparsers.add_parser("start", help="Create a sandbox, print its ID, and leave it running.")
 
@@ -661,7 +706,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     write_parser = subparsers.add_parser("write", help="Write a text file inside the sandbox workspace.")
     write_parser.add_argument("path")
-    write_parser.add_argument("--content", required=True)
+    write_input = write_parser.add_mutually_exclusive_group(required=True)
+    write_input.add_argument("--content")
+    write_input.add_argument("--content-file")
+    write_input.add_argument("--stdin", action="store_true", dest="read_stdin")
 
     read_parser = subparsers.add_parser("read", help="Read a text file inside the sandbox workspace.")
     read_parser.add_argument("path")
@@ -699,6 +747,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def _write_content_from_args(args: argparse.Namespace) -> str:
+    if args.content is not None:
+        return args.content
+    if args.content_file is not None:
+        return Path(args.content_file).read_text(encoding="utf-8")
+    if args.read_stdin:
+        return sys.stdin.read()
+    raise argparse.ArgumentTypeError("write requires --content, --content-file, or --stdin")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -760,6 +818,7 @@ def main(argv: list[str] | None = None) -> int:
                 workspace=args.workspace,
                 command_timeout=args.timeout,
                 sandbox_timeout=args.sandbox_timeout,
+                max_output_bytes=args.max_output_bytes,
                 ensure_workspace=False,
             )
             sandbox.terminate(wait=True)
@@ -771,14 +830,14 @@ def main(argv: list[str] | None = None) -> int:
         # Each command creates or attaches to a sandbox, performs one operation,
         # and closes it. Richer lifecycle management can layer on later.
         if args.command_name == "run":
-            result = sandbox.run(args.command, cwd=args.cwd)
+            result = sandbox.run(args.command, cwd=args.cwd, max_output_bytes=args.max_output_bytes)
             _print_json(result.to_dict())
             if args.use_command_exit_code:
                 if result.exit_code is not None:
                     return result.exit_code
                 return 124 if result.timed_out else 1
         elif args.command_name == "write":
-            sandbox.write_text(args.path, args.content)
+            sandbox.write_text(args.path, _write_content_from_args(args))
             _print_json({"path": args.path, "status": "wrote"})
         elif args.command_name == "read":
             _print_json({"path": args.path, "content": sandbox.read_text(args.path)})
@@ -800,12 +859,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             parser.error(f"Unknown command: {args.command_name}")
     except argparse.ArgumentTypeError as exc:
-        parser.exit(2, f"sandbox: error: {exc}\n")
+        _exit_with_error(parser, "argument_error", str(exc), 2)
+    except ModalAuthenticationError as exc:
+        _exit_with_error(parser, "modal_authentication_error", str(exc), 1)
     except Exception as exc:
-        parser.exit(
-            1,
-            f"sandbox: error: {exc}\nRun `sandbox doctor` to inspect local setup without creating Modal resources.\n",
-        )
+        _exit_with_error(parser, "runtime_error", str(exc), 1)
     finally:
         if sandbox is not None:
             sandbox.close()

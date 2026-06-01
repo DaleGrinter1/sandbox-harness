@@ -10,6 +10,10 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
 
     assert data["project"]["name"] == "modal-sandbox-sdk"
     assert data["project"]["requires-python"] == ">=3.11"
+    assert data["project"]["license"] == "MIT"
+    assert data["project"]["authors"] == [{"name": "DaleGrinter1", "email": "dalegrinter1@gmail.com"}]
+    assert "License :: OSI Approved :: MIT License" in data["project"]["classifiers"]
+    assert data["project"]["urls"]["Repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
     assert data["project"]["dependencies"] == ["modal>=1.4.3"]
     assert data["project"]["scripts"] == {
         "sandbox": "sandbox_cli.cli:main",
@@ -18,7 +22,9 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
         "packages/sandbox",
         "packages/sandbox_cli",
     ]
-    assert data["dependency-groups"]["dev"] == ["pytest>=8.0"]
+    assert data["dependency-groups"]["dev"] == ["pyright>=1.1.407", "pytest>=8.0", "ruff>=0.14.0"]
+    assert data["tool"]["ruff"]["line-length"] == 120
+    assert data["tool"]["pyright"]["typeCheckingMode"] == "basic"
 
 
 def test_public_imports_are_available() -> None:
@@ -28,7 +34,16 @@ def test_public_imports_are_available() -> None:
     assert hasattr(sdk, "CommandResult")
     assert hasattr(sdk, "ModalAuthenticationError")
     assert hasattr(sdk, "SandboxConfig")
+    assert hasattr(sdk, "SandboxError")
+    assert hasattr(sdk, "SandboxProviderError")
     assert hasattr(sdk, "Images")
+
+
+def test_license_file_is_present() -> None:
+    license_text = Path("LICENSE").read_text(encoding="utf-8")
+
+    assert license_text.startswith("MIT License")
+    assert "DaleGrinter1" in license_text
 
 
 def test_image_presets_are_registry_tags() -> None:

@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 
 from .provider_modal import ModalSandboxProvider, SandboxProvider
-from .types import CommandResult, ImageSpec, SandboxConfig, VolumeSpec
+from .types import DEFAULT_MAX_OUTPUT_BYTES, CommandResult, ImageSpec, SandboxConfig, VolumeSpec
 
 
 class Sandbox:
@@ -43,8 +43,9 @@ class Sandbox:
         gpu: str | None = None,
         region: str | list[str] | None = None,
         block_network: bool = False,
+        max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         sandbox_id: str | None = None,
-    ) -> "Sandbox":
+    ) -> Sandbox:
         """Create or attach to a Modal Sandbox.
 
         Args:
@@ -67,6 +68,8 @@ class Sandbox:
             gpu: GPU request passed through to Modal.
             region: Region preference passed through to Modal.
             block_network: Whether to block outbound network access.
+            max_output_bytes: Maximum captured bytes per output stream. Use
+                `None` for no SDK truncation.
             sandbox_id: Existing Modal sandbox ID to attach to instead of
                 creating a new sandbox.
 
@@ -91,6 +94,7 @@ class Sandbox:
             gpu=gpu,
             region=region,
             block_network=block_network,
+            max_output_bytes=max_output_bytes,
         )
 
         # Attach and create share the same public config, but Modal only needs
@@ -111,8 +115,9 @@ class Sandbox:
         command_timeout: int = 30,
         sandbox_timeout: int = 300,
         workdir: str | None = None,
+        max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         ensure_workspace: bool = True,
-    ) -> "Sandbox":
+    ) -> Sandbox:
         """Attach to an existing Modal Sandbox by ID.
 
         Args:
@@ -122,6 +127,7 @@ class Sandbox:
             command_timeout: Default timeout in seconds for `run`.
             sandbox_timeout: Stored for config symmetry with `create`.
             workdir: Default working directory for commands.
+            max_output_bytes: Maximum captured bytes per output stream.
             ensure_workspace: Whether to create the configured workspace after
                 attaching.
 
@@ -134,11 +140,12 @@ class Sandbox:
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
+            max_output_bytes=max_output_bytes,
         )
         return cls(ModalSandboxProvider.from_id(sandbox_id, config, ensure_workspace=ensure_workspace))
 
     @classmethod
-    def from_provider(cls, provider: SandboxProvider) -> "Sandbox":
+    def from_provider(cls, provider: SandboxProvider) -> Sandbox:
         """Build a `Sandbox` from a provider implementation.
 
         Args:
@@ -159,18 +166,26 @@ class Sandbox:
         """Return the Modal sandbox object ID when available."""
         return self._provider.sandbox_id
 
-    def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
+    def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
         """Run a shell command inside the sandbox.
 
         Args:
             command: Shell command to execute.
             timeout: Optional command timeout in seconds.
             cwd: Optional working directory inside the sandbox.
+            max_output_bytes: Optional per-call maximum captured bytes per
+                output stream.
 
         Returns:
             Command output, exit status, duration, and timeout metadata.
         """
-        return self._provider.run(command, timeout=timeout, cwd=cwd)
+        return self._provider.run(command, timeout=timeout, cwd=cwd, max_output_bytes=max_output_bytes)
 
     def write_text(self, path: str, content: str) -> None:
         """Write UTF-8 text inside the sandbox workspace.
@@ -291,7 +306,7 @@ class Sandbox:
         """Terminate the underlying sandbox."""
         self._provider.terminate(wait=wait)
 
-    def __enter__(self) -> "Sandbox":
+    def __enter__(self) -> Sandbox:
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:

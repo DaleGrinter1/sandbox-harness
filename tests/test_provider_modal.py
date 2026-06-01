@@ -3,9 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path
-from sandbox.types import ModalAuthenticationError, SandboxConfig
+from sandbox.types import ModalAuthenticationError, SandboxConfig, SandboxProviderError
 
 
 class FakeAuthError(Exception):
@@ -21,9 +20,9 @@ class FakeStream:
 
 
 class FakeProcess:
-    def __init__(self) -> None:
-        self.stdout = FakeStream("ok\n")
-        self.stderr = FakeStream("")
+    def __init__(self, stdout: str = "ok\n", stderr: str = "") -> None:
+        self.stdout = FakeStream(stdout)
+        self.stderr = FakeStream(stderr)
         self.returncode = 0
 
     def wait(self) -> None:
@@ -71,14 +70,19 @@ class FakeSandboxObject:
         self.filesystem = FakeFilesystem()
         self.exec_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.raise_auth_error_on_exec = False
+        self.raise_runtime_error_on_exec = False
+        self.stdout = "ok\n"
+        self.stderr = ""
         self.terminated = False
         self.detached = False
 
     def exec(self, *args: object, **kwargs: object) -> FakeProcess:
         if self.raise_auth_error_on_exec:
             raise FakeAuthError("token missing")
+        if self.raise_runtime_error_on_exec:
+            raise RuntimeError("provider failed")
         self.exec_calls.append((args, kwargs))
-        return FakeProcess()
+        return FakeProcess(stdout=self.stdout, stderr=self.stderr)
 
     def terminate(self, *, wait: bool = True) -> None:
         self.terminated = wait
@@ -266,7 +270,46 @@ def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:
 
     assert result.stdout == "ok\n"
     assert result.exit_code == 0
+    assert result.max_output_bytes == 10 * 1024 * 1024
     assert provider._sandbox.exec_calls[-1] == (("sh", "-lc", "cd /workspace && echo ok"), {"timeout": 17})
+
+
+def test_run_can_truncate_stdout_and_stderr(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(max_output_bytes=4))
+    provider._sandbox.stdout = "abcdef"
+    provider._sandbox.stderr = "123456"
+
+    result = provider.run("echo ok")
+
+    assert result.stdout == "abcd"
+    assert result.stderr == "1234"
+    assert result.stdout_truncated is True
+    assert result.stderr_truncated is True
+    assert result.max_output_bytes == 4
+
+
+def test_run_per_call_max_output_bytes_overrides_config(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(max_output_bytes=10))
+    provider._sandbox.stdout = "abcdef"
+
+    result = provider.run("echo ok", max_output_bytes=3)
+
+    assert result.stdout == "abc"
+    assert result.stdout_truncated is True
+    assert result.max_output_bytes == 3
+
+
+def test_run_does_not_truncate_under_output_limit(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(max_output_bytes=10))
+    provider._sandbox.stdout = "abc"
+
+    result = provider.run("echo ok")
+
+    assert result.stdout == "abc"
+    assert result.stdout_truncated is False
 
 
 def test_run_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:
@@ -280,6 +323,16 @@ def test_run_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:
 
     assert "modal setup" in str(exc.value)
     assert "MODAL_TOKEN_SECRET" in str(exc.value)
+
+
+def test_run_wraps_unexpected_provider_errors(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    sandbox = FakeSandboxObject()
+    sandbox.raise_runtime_error_on_exec = True
+    provider = ModalSandboxProvider(sandbox, SandboxConfig())
+
+    with pytest.raises(SandboxProviderError, match="provider failed"):
+        provider.run("echo ok")
 
 
 def test_filesystem_helpers_use_workspace_paths(monkeypatch) -> None:

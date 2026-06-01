@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sandbox import CommandResult, Sandbox, SandboxConfig
+import os
+
+from sandbox import CommandResult, Sandbox, SandboxConfig, SandboxError, SandboxProviderError
 
 
 class FakeProvider:
@@ -21,15 +23,23 @@ class FakeProvider:
     def sandbox_id(self) -> str:
         return "sb-fake"
 
-    def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
+    def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
         self.commands.append((command, timeout, cwd))
         if command == "python -c 'print(123)'":
-            return CommandResult(command, "123\n", "", 0, 5)
+            return CommandResult(command, "123\n", "", 0, 5, max_output_bytes=max_output_bytes)
         if command == "sh -c 'exit 7'":
-            return CommandResult(command, "", "", 7, 4)
+            return CommandResult(command, "", "", 7, 4, max_output_bytes=max_output_bytes)
         if command == "sleep 10":
-            return CommandResult(command, "", "timed out", None, 1000, timed_out=True)
-        return CommandResult(command, "", "", 0, 1)
+            return CommandResult(
+                command, "", "timed out", None, 1000, timed_out=True, max_output_bytes=max_output_bytes
+            )
+        return CommandResult(command, "", "", 0, 1, max_output_bytes=max_output_bytes)
 
     def write_text(self, path: str, content: str) -> None:
         self.text_files[path] = content
@@ -52,11 +62,11 @@ class FakeProvider:
     def remove(self, path: str, *, recursive: bool = False) -> None:
         self.remove_calls.append((path, recursive))
 
-    def copy_from_local(self, local_path: str, remote_path: str) -> None:
-        self.copy_from_local_calls.append((local_path, remote_path))
+    def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None:
+        self.copy_from_local_calls.append((str(local_path), remote_path))
 
-    def copy_to_local(self, remote_path: str, local_path: str) -> None:
-        self.copy_to_local_calls.append((remote_path, local_path))
+    def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
+        self.copy_to_local_calls.append((remote_path, str(local_path)))
 
     def close(self) -> None:
         self.closed = True
@@ -105,6 +115,34 @@ def test_run_passes_timeout_and_cwd_to_provider() -> None:
     assert provider.commands[-1] == ("pwd", 9, "/tmp")
 
 
+def test_run_passes_max_output_bytes_to_provider() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    result = sandbox.run("pwd", max_output_bytes=123)
+
+    assert result.max_output_bytes == 123
+
+
+def test_create_accepts_unlimited_max_output_bytes(monkeypatch) -> None:
+    created_configs: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            created_configs.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    sandbox = Sandbox.create(max_output_bytes=None)
+
+    assert sandbox.config.max_output_bytes is None
+    assert created_configs[-1].max_output_bytes is None
+
+
 def test_file_helpers_delegate_to_provider() -> None:
     provider = FakeProvider()
     sandbox = Sandbox.from_provider(provider)
@@ -145,3 +183,7 @@ def test_lifecycle_helpers_delegate_to_provider() -> None:
     assert sandbox.sandbox_id == "sb-fake"
     assert provider.detached is True
     assert provider.terminated is True
+
+
+def test_public_exception_hierarchy() -> None:
+    assert issubclass(SandboxProviderError, SandboxError)

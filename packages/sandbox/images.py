@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 _PY313 = "python:3.13-slim"
 _PY312 = "python:3.12-slim"
 _PY311 = "python:3.11-slim"

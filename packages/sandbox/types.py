@@ -4,13 +4,21 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
-
 ImageSpec = str | object | None
 VolumeSpec = str | object
+DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
 
 
-class ModalAuthenticationError(RuntimeError):
+class SandboxError(RuntimeError):
+    """Base exception for SDK-level sandbox failures."""
+
+
+class ModalAuthenticationError(SandboxError):
     """Raised when Modal credentials are missing, invalid, or expired."""
+
+
+class SandboxProviderError(SandboxError):
+    """Raised when the sandbox provider reports an unexpected failure."""
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,7 @@ class SandboxConfig:
         gpu: GPU request passed through to Modal.
         region: Region preference passed through to Modal.
         block_network: Whether Modal should block outbound network access.
+        max_output_bytes: Maximum captured bytes per output stream.
     """
 
     app_name: str = "modal-sandbox-sdk"
@@ -48,6 +57,7 @@ class SandboxConfig:
     gpu: str | None = None
     region: str | list[str] | None = None
     block_network: bool = False
+    max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES
 
 
 @dataclass(frozen=True)
@@ -61,6 +71,9 @@ class CommandResult:
         exit_code: Process exit code, or `None` when unavailable.
         duration_ms: Wall-clock command duration in milliseconds.
         timed_out: Whether command execution hit the configured timeout.
+        stdout_truncated: Whether stdout was truncated by the output guard.
+        stderr_truncated: Whether stderr was truncated by the output guard.
+        max_output_bytes: Maximum bytes allowed per output stream.
     """
 
     command: str
@@ -69,6 +82,9 @@ class CommandResult:
     exit_code: int | None
     duration_ms: int
     timed_out: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    max_output_bytes: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the result into a JSON-serializable dictionary.

@@ -102,6 +102,16 @@ with Sandbox.create(image=Images.PY313, env={"APP_ENV": "dev"}) as sb:
     print(sb.run("echo $APP_ENV").stdout)
 ```
 
+Captured command output is buffered and capped at 10 MiB per stream by default.
+Pass `max_output_bytes` to `Sandbox.create(...)` or `sb.run(...)` when a
+workflow needs a different limit:
+
+```python
+with Sandbox.create(image=Images.PY313, max_output_bytes=1024 * 1024) as sb:
+    result = sb.run("python noisy.py", max_output_bytes=4096)
+    print(result.stdout_truncated)
+```
+
 Copy files between your machine and the sandbox:
 
 ```python
@@ -139,7 +149,7 @@ sb.close()
 ## CLI
 
 The CLI command is `sandbox`. Commands print JSON except for `--help` and
-`--version`.
+`--version`. Failures also print a JSON error envelope to stderr.
 
 Agent-friendly discovery commands do not create Modal resources:
 
@@ -244,6 +254,22 @@ uv run sandbox --image py313 --workspace-volume my-workspace write game.py --con
 uv run sandbox --image py313 --workspace-volume my-workspace ls .
 uv run sandbox --image py313 --workspace-volume my-workspace run --cwd /workspace "python game.py"
 uv run sandbox --image py313 --workspace-volume my-workspace read game.py
+```
+
+`write` accepts inline text, a local UTF-8 file, or standard input:
+
+```bash
+uv run sandbox write game.py --content "print('hello')"
+uv run sandbox write game.py --content-file game.py
+printf "print('hello')\n" | uv run sandbox write game.py --stdin
+```
+
+Use `--max-output-bytes` to change the captured stdout/stderr cap for CLI
+commands. The guard truncates each stream independently after command output is
+captured; it does not live-stream output.
+
+```bash
+uv run sandbox --max-output-bytes 1048576 run "python noisy.py"
 ```
 
 Copy files in and out:
@@ -397,13 +423,21 @@ When Modal reports missing, invalid, or expired credentials, this SDK raises
 `ModalAuthenticationError` with setup commands so CLI users and Python callers
 get a next step instead of a raw Modal traceback.
 
+SDK exceptions inherit from `SandboxError`. Unexpected provider failures are
+wrapped in `SandboxProviderError`; nonzero command exits remain regular
+`CommandResult` values and do not raise.
+
 ## Development
 
 Default tests do not create real Modal resources.
 
 ```bash
 uv sync
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
 uv run pytest
+uv build
 uv run sandbox --help
 ```
 

@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 import os
 import sys
-from types import SimpleNamespace
 import uuid
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
-
 from sandbox import Sandbox
 from sandbox_cli import cli
-
 
 live_modal = pytest.mark.skipif(
     os.environ.get("MODAL_SANDBOX_SDK_RUN_MODAL_TESTS") != "1",
@@ -22,7 +21,7 @@ def _unique_name(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-def _run_cli_json(capsys: pytest.CaptureFixture[str], args: list[str]) -> dict[str, object]:
+def _run_cli_json(capsys: pytest.CaptureFixture[str], args: list[str]) -> dict[str, Any]:
     exit_code = cli.main(args)
     captured = capsys.readouterr()
     assert captured.err == ""

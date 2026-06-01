@@ -5,10 +5,9 @@ import shlex
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol, TypeVar
+from typing import Any, NoReturn, Protocol, TypeVar
 
-from .types import CommandResult, ImageSpec, ModalAuthenticationError, SandboxConfig, VolumeSpec
-
+from .types import CommandResult, ImageSpec, ModalAuthenticationError, SandboxConfig, SandboxProviderError, VolumeSpec
 
 T = TypeVar("T")
 
@@ -36,47 +35,39 @@ class SandboxProvider(Protocol):
     config: SandboxConfig
 
     @property
-    def sandbox_id(self) -> str | None:
-        ...
+    def sandbox_id(self) -> str | None: ...
 
-    def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
-        ...
+    def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult: ...
 
-    def write_text(self, path: str, content: str) -> None:
-        ...
+    def write_text(self, path: str, content: str) -> None: ...
 
-    def write_bytes(self, path: str, content: bytes) -> None:
-        ...
+    def write_bytes(self, path: str, content: bytes) -> None: ...
 
-    def read_text(self, path: str) -> str:
-        ...
+    def read_text(self, path: str) -> str: ...
 
-    def read_bytes(self, path: str) -> bytes:
-        ...
+    def read_bytes(self, path: str) -> bytes: ...
 
-    def list_files(self, path: str = ".") -> list[str]:
-        ...
+    def list_files(self, path: str = ".") -> list[str]: ...
 
-    def mkdir(self, path: str, *, parents: bool = True) -> None:
-        ...
+    def mkdir(self, path: str, *, parents: bool = True) -> None: ...
 
-    def remove(self, path: str, *, recursive: bool = False) -> None:
-        ...
+    def remove(self, path: str, *, recursive: bool = False) -> None: ...
 
-    def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None:
-        ...
+    def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None: ...
 
-    def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
-        ...
+    def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None: ...
 
-    def detach(self) -> None:
-        ...
+    def detach(self) -> None: ...
 
-    def terminate(self, *, wait: bool = True) -> None:
-        ...
+    def terminate(self, *, wait: bool = True) -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 def _decode_stream(value: object) -> str:
@@ -116,6 +107,22 @@ def _translate_modal_auth_error(exc: Exception, modal: object | None = None) -> 
         _raise_with_auth_guidance(exc)
 
 
+def _raise_provider_error(exc: Exception) -> NoReturn:
+    raise SandboxProviderError(str(exc) or exc.__class__.__name__) from exc
+
+
+def _truncate_text(value: str, max_bytes: int | None) -> tuple[str, bool]:
+    if max_bytes is None:
+        return value, False
+    if max_bytes < 0:
+        raise ValueError("max_output_bytes must be non-negative or None.")
+
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value, False
+    return encoded[:max_bytes].decode("utf-8", errors="ignore"), True
+
+
 def sandbox_path(path: str, workspace: str) -> str:
     """Convert relative SDK paths into absolute sandbox paths."""
     if path.startswith("/"):
@@ -143,7 +150,7 @@ def sandbox_path(path: str, workspace: str) -> str:
 class ModalSandboxProvider:
     """Provider backed by real Modal Sandbox objects."""
 
-    def __init__(self, sandbox: object, config: SandboxConfig, *, owns_sandbox: bool = True):
+    def __init__(self, sandbox: Any, config: SandboxConfig, *, owns_sandbox: bool = True):
         """Initialize the provider.
 
         Args:
@@ -157,7 +164,7 @@ class ModalSandboxProvider:
         self._owns_sandbox = owns_sandbox
 
     @classmethod
-    def create(cls, config: SandboxConfig | None = None) -> "ModalSandboxProvider":
+    def create(cls, config: SandboxConfig | None = None) -> ModalSandboxProvider:
         """Create a new Modal sandbox from SDK configuration.
 
         Args:
@@ -168,9 +175,9 @@ class ModalSandboxProvider:
             Provider connected to the created Modal sandbox.
         """
         config = config or SandboxConfig()
-        modal = cls._load_modal()
-
+        modal = None
         try:
+            modal = cls._load_modal()
             app = modal.App.lookup(config.app_name, create_if_missing=True)
             create_kwargs: dict[str, Any] = {
                 "app": app,
@@ -213,7 +220,7 @@ class ModalSandboxProvider:
             provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
             _translate_modal_auth_error(exc, modal)
-            raise
+            _raise_provider_error(exc)
         return provider
 
     @classmethod
@@ -223,7 +230,7 @@ class ModalSandboxProvider:
         config: SandboxConfig | None = None,
         *,
         ensure_workspace: bool = True,
-    ) -> "ModalSandboxProvider":
+    ) -> ModalSandboxProvider:
         """Attach to an existing Modal sandbox.
 
         Args:
@@ -237,18 +244,19 @@ class ModalSandboxProvider:
             Provider connected to the existing Modal sandbox.
         """
         config = config or SandboxConfig()
-        modal = cls._load_modal()
+        modal = None
         try:
+            modal = cls._load_modal()
             provider = cls(modal.Sandbox.from_id(sandbox_id), config, owns_sandbox=False)
             if ensure_workspace:
                 provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
             _translate_modal_auth_error(exc, modal)
-            raise
+            _raise_provider_error(exc)
         return provider
 
     @staticmethod
-    def _load_modal() -> object:
+    def _load_modal() -> Any:
         """Import Modal lazily so package import stays lightweight."""
         try:
             import modal
@@ -257,7 +265,7 @@ class ModalSandboxProvider:
         return modal
 
     @property
-    def filesystem(self) -> object:
+    def filesystem(self) -> Any:
         """Return Modal's native sandbox filesystem API."""
         return self._sandbox.filesystem
 
@@ -272,21 +280,29 @@ class ModalSandboxProvider:
             return operation()
         except Exception as exc:
             _translate_modal_auth_error(exc)
-            raise
+            _raise_provider_error(exc)
 
-    def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> CommandResult:
+    def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
         """Run a shell command inside the Modal sandbox.
 
         Args:
             command: Shell command to execute.
             timeout: Optional command timeout in seconds.
             cwd: Optional working directory inside the sandbox.
+            max_output_bytes: Optional per-call output guard in bytes.
 
         Returns:
             Command result with captured output and timing metadata.
         """
         effective_timeout = timeout if timeout is not None else self.config.command_timeout
         effective_cwd = cwd or self.config.workdir or self.config.workspace
+        effective_max_output_bytes = max_output_bytes if max_output_bytes is not None else self.config.max_output_bytes
         shell_command = f"cd {_quote(effective_cwd)} && {command}"
 
         start = time.monotonic()
@@ -307,8 +323,10 @@ class ModalSandboxProvider:
             stderr = str(exc)
         except Exception as exc:
             _translate_modal_auth_error(exc)
-            raise
+            _raise_provider_error(exc)
         duration_ms = int((time.monotonic() - start) * 1000)
+        stdout, stdout_truncated = _truncate_text(stdout, effective_max_output_bytes)
+        stderr, stderr_truncated = _truncate_text(stderr, effective_max_output_bytes)
 
         return CommandResult(
             command=command,
@@ -317,56 +335,56 @@ class ModalSandboxProvider:
             exit_code=exit_code,
             duration_ms=duration_ms,
             timed_out=timed_out,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
+            max_output_bytes=effective_max_output_bytes,
         )
 
     def write_text(self, path: str, content: str) -> None:
         """Write UTF-8 text through Modal's filesystem API."""
-        self._modal_call(
-            lambda: self.filesystem.write_text(content, sandbox_path(path, self.config.workspace))
-        )
+        remote_path = sandbox_path(path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.write_text(content, remote_path))
 
     def write_bytes(self, path: str, content: bytes) -> None:
         """Write bytes through Modal's filesystem API."""
-        self._modal_call(
-            lambda: self.filesystem.write_bytes(content, sandbox_path(path, self.config.workspace))
-        )
+        remote_path = sandbox_path(path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.write_bytes(content, remote_path))
 
     def read_text(self, path: str) -> str:
         """Read UTF-8 text through Modal's filesystem API."""
-        return self._modal_call(lambda: self.filesystem.read_text(sandbox_path(path, self.config.workspace)))
+        remote_path = sandbox_path(path, self.config.workspace)
+        return self._modal_call(lambda: self.filesystem.read_text(remote_path))
 
     def read_bytes(self, path: str) -> bytes:
         """Read bytes through Modal's filesystem API."""
-        return self._modal_call(lambda: self.filesystem.read_bytes(sandbox_path(path, self.config.workspace)))
+        remote_path = sandbox_path(path, self.config.workspace)
+        return self._modal_call(lambda: self.filesystem.read_bytes(remote_path))
 
     def list_files(self, path: str = ".") -> list[str]:
         """List direct children of a sandbox directory."""
-        entries = self._modal_call(lambda: self.filesystem.list_files(sandbox_path(path, self.config.workspace)))
+        remote_path = sandbox_path(path, self.config.workspace)
+        entries = self._modal_call(lambda: self.filesystem.list_files(remote_path))
         return sorted(str(getattr(entry, "name", entry)) for entry in entries)
 
     def mkdir(self, path: str, *, parents: bool = True) -> None:
         """Create a sandbox directory."""
-        self._modal_call(
-            lambda: self.filesystem.make_directory(sandbox_path(path, self.config.workspace), create_parents=parents)
-        )
+        remote_path = sandbox_path(path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.make_directory(remote_path, create_parents=parents))
 
     def remove(self, path: str, *, recursive: bool = False) -> None:
         """Remove a sandbox file or directory."""
-        self._modal_call(
-            lambda: self.filesystem.remove(sandbox_path(path, self.config.workspace), recursive=recursive)
-        )
+        remote_path = sandbox_path(path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.remove(remote_path, recursive=recursive))
 
     def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None:
         """Copy local data into the sandbox."""
-        self._modal_call(
-            lambda: self.filesystem.copy_from_local(Path(local_path), sandbox_path(remote_path, self.config.workspace))
-        )
+        resolved_remote_path = sandbox_path(remote_path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.copy_from_local(Path(local_path), resolved_remote_path))
 
     def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
         """Copy sandbox data to the local filesystem."""
-        self._modal_call(
-            lambda: self.filesystem.copy_to_local(sandbox_path(remote_path, self.config.workspace), Path(local_path))
-        )
+        resolved_remote_path = sandbox_path(remote_path, self.config.workspace)
+        self._modal_call(lambda: self.filesystem.copy_to_local(resolved_remote_path, Path(local_path)))
 
     def detach(self) -> None:
         """Detach from the Modal sandbox without terminating it."""
@@ -377,7 +395,7 @@ class ModalSandboxProvider:
             self._owns_sandbox = False
         except Exception as exc:
             _translate_modal_auth_error(exc)
-            raise
+            _raise_provider_error(exc)
 
     def terminate(self, *, wait: bool = True) -> None:
         """Terminate the Modal sandbox."""
@@ -388,7 +406,7 @@ class ModalSandboxProvider:
             self._owns_sandbox = False
         except Exception as exc:
             _translate_modal_auth_error(exc)
-            raise
+            _raise_provider_error(exc)
 
     def close(self) -> None:
         """Terminate or detach from the Modal sandbox."""
@@ -398,7 +416,7 @@ class ModalSandboxProvider:
             self.detach()
 
 
-def _resolve_image(modal: object, image: ImageSpec) -> object | None:
+def _resolve_image(modal: Any, image: ImageSpec) -> object | None:
     """Resolve public image input into a Modal image object."""
     if image is None:
         return None
@@ -408,7 +426,7 @@ def _resolve_image(modal: object, image: ImageSpec) -> object | None:
 
 
 def _resolve_volumes(
-    modal: object,
+    modal: Any,
     *,
     workspace: str,
     workspace_volume: VolumeSpec | None,
@@ -424,7 +442,7 @@ def _resolve_volumes(
     return volumes
 
 
-def _resolve_volume(modal: object, volume: VolumeSpec) -> object:
+def _resolve_volume(modal: Any, volume: VolumeSpec) -> object:
     """Resolve public volume input into a Modal volume object."""
     if isinstance(volume, str):
         return modal.Volume.from_name(volume, create_if_missing=True)
