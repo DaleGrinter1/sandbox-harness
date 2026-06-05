@@ -73,9 +73,13 @@ def test_beginner_examples_are_present() -> None:
 
 def test_repo_local_skills_are_model_neutral_source_artifacts() -> None:
     expected_skills = {
+        "modal-sandbox-cli-contract",
         "modal-sandbox-first-run",
         "modal-sandbox-cli-workflows",
+        "modal-sandbox-docs-maintenance",
         "modal-sandbox-file-workflows",
+        "modal-sandbox-live-tests",
+        "modal-sandbox-provider-adapter",
         "modal-sandbox-python-sdk",
     }
     skills_root = Path("skills")

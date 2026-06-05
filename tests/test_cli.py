@@ -471,6 +471,39 @@ def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch
     assert FakeSandbox.instances == []
 
 
+def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.setenv("MODAL_TOKEN_ID", "token-id")
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    exit_code = cli.main(["doctor"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ready"] is False
+    assert payload["status"] == "needs_setup"
+    assert payload["problems"] == ["modal_credentials_partial_environment"]
+    assert payload["next_steps"] == ["Set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or run `uv run modal setup`."]
+    assert payload["credentials"]["status"] == "partial_environment"
+    assert payload["credentials"]["environment"] == {
+        "complete": False,
+        "modal_token_id_set": True,
+        "modal_token_secret_set": False,
+    }
+    assert payload["ready_hint"] == (
+        "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
+    )
+    assert payload["recommended_commands"][-1]["command"] == "uv run modal setup"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
 def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, capsys, tmp_path) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []

@@ -36,3 +36,6 @@ jobs:
 
       - name: Build package
         run: uv build
+
+      - name: Check CLI help
+        run: uv run sandbox --help

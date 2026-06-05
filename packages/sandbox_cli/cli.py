@@ -465,6 +465,8 @@ def _credential_status() -> dict[str, object]:
 
     if has_complete_env:
         status = "configured_from_environment"
+    elif env_has_id or env_has_secret:
+        status = "partial_environment"
     elif config_exists:
         status = "configured_from_modal_toml"
     else:
@@ -497,7 +499,10 @@ def _readiness(modal_package: dict[str, object], credentials: dict[str, object])
         problems.append("modal_package_not_installed")
         next_steps.append("Install dependencies with `uv sync`.")
 
-    if credentials["status"] == "missing_or_unknown":
+    if credentials["status"] == "partial_environment":
+        problems.append("modal_credentials_partial_environment")
+        next_steps.append("Set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or run `uv run modal setup`.")
+    elif credentials["status"] == "missing_or_unknown":
         problems.append("modal_credentials_missing")
         next_steps.append(f"Run `{_recommended_setup_command()}` before creating a live sandbox.")
 
@@ -589,24 +594,28 @@ def _doctor_payload() -> dict[str, object]:
     credentials = _credential_status()
     readiness = _readiness(modal_package, credentials)
     recommended_commands = [*RECOMMENDED_FIRST_COMMANDS]
-    if credentials["status"] == "missing_or_unknown":
+    if credentials["status"] in {"missing_or_unknown", "partial_environment"}:
         recommended_commands.append(
             {
                 "command": _recommended_setup_command(),
                 "creates_modal_resources": False,
-                "purpose": "Sign in to Modal when credentials are missing.",
+                "purpose": "Sign in to Modal when credentials are missing or incomplete.",
             }
         )
+    if credentials["status"] == "partial_environment":
+        ready_hint = (
+            "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
+        )
+    elif credentials["status"] == "missing_or_unknown":
+        ready_hint = "Modal credentials were not found. Run modal setup before creating a sandbox."
+    else:
+        ready_hint = "Modal credentials appear to be configured."
 
     return {
         **readiness,
         "modal_package": modal_package,
         "credentials": credentials,
-        "ready_hint": (
-            "Modal credentials appear to be configured."
-            if credentials["status"] != "missing_or_unknown"
-            else "Modal credentials were not found. Run modal setup before creating a sandbox."
-        ),
+        "ready_hint": ready_hint,
         "recommended_commands": recommended_commands,
         "setup_commands": SETUP_COMMANDS,
         "creates_modal_resources": False,
