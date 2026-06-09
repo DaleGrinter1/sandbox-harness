@@ -385,7 +385,16 @@ class Sandbox:
         self._provider.copy_to_local(remote_path, local_path)
 
     def write_files(self, files: Sequence[SandboxFile | Mapping[str, object]]) -> None:
-        """Write multiple text or binary files into the sandbox workspace."""
+        """Write multiple text or binary files into the sandbox workspace.
+
+        Args:
+            files: Sequence of `SandboxFile` objects or mappings with `path`
+                and `content` keys.
+
+        Raises:
+            TypeError: If a mapping is missing a string path or string/bytes
+                content.
+        """
         for file in files:
             sandbox_file = _coerce_sandbox_file(file)
             if isinstance(sandbox_file.content, bytes):
@@ -406,21 +415,61 @@ class Sandbox:
         self._provider.terminate(wait=wait)
 
     def domain(self, port: int) -> str:
-        """Return the public HTTPS URL for a declared sandbox port."""
+        """Return the public HTTPS URL for a declared sandbox port.
+
+        Args:
+            port: Port declared when the sandbox was created.
+
+        Returns:
+            Public URL for the Modal tunnel.
+        """
         return self._provider.domain(port)
 
     def create_snapshot(self) -> SandboxSnapshot:
-        """Create a volume-backed workspace snapshot checkpoint."""
+        """Create a volume-backed workspace snapshot checkpoint.
+
+        Returns:
+            Metadata for the Modal volume mounted at the workspace path.
+
+        Raises:
+            SandboxConfigurationError: If the workspace is not backed by a
+                named volume.
+        """
         return self._provider.create_snapshot()
 
     def __enter__(self) -> Sandbox:
+        """Enter a context manager and return this sandbox.
+
+        Returns:
+            Current sandbox instance.
+        """
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        """Close the sandbox when leaving a context manager.
+
+        Args:
+            exc_type: Exception type raised inside the context, if any.
+            exc: Exception raised inside the context, if any.
+            tb: Traceback raised inside the context, if any.
+        """
         self.close()
 
 
 def _resolve_runtime_image(runtime: RuntimeSpec, image: ImageSpec) -> ImageSpec:
+    """Resolve a runtime alias into a registry image.
+
+    Args:
+        runtime: Vercel-style runtime alias.
+        image: Explicit registry image or Modal image object.
+
+    Returns:
+        Resolved image input for `SandboxConfig`.
+
+    Raises:
+        SandboxConfigurationError: If both `runtime` and `image` are provided,
+            or if the runtime alias is unsupported.
+    """
     if runtime is None:
         return image
     if image is not None:
@@ -433,6 +482,17 @@ def _resolve_runtime_image(runtime: RuntimeSpec, image: ImageSpec) -> ImageSpec:
 
 
 def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFile:
+    """Normalize bulk file input into a `SandboxFile`.
+
+    Args:
+        file: Existing `SandboxFile`, or mapping with `path` and `content`.
+
+    Returns:
+        Normalized `SandboxFile`.
+
+    Raises:
+        TypeError: If the mapping shape is invalid.
+    """
     if isinstance(file, SandboxFile):
         return file
     path = file.get("path")
@@ -445,6 +505,17 @@ def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFil
 
 
 def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[SandboxVolume, ...]:
+    """Normalize optional volume input into an immutable tuple.
+
+    Args:
+        volumes: Optional sequence of `SandboxVolume` declarations.
+
+    Returns:
+        Tuple of volume declarations.
+
+    Raises:
+        TypeError: If any item is not a `SandboxVolume`.
+    """
     if volumes is None:
         return ()
     normalized = tuple(volumes)
@@ -455,9 +526,19 @@ def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[Sandbox
 
 
 def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:
+    """Validate volume mount paths before passing them to Modal.
+
+    Args:
+        volumes: Volume declarations to validate.
+
+    Raises:
+        SandboxConfigurationError: If a mount path is not absolute or if two
+            volumes target the same normalized mount path.
+    """
     seen: set[str] = set()
 
     def add_mount(mount_path: str) -> None:
+        """Track one normalized mount path and reject duplicates."""
         normalized = mount_path.rstrip("/") or "/"
         if normalized in seen:
             raise SandboxConfigurationError(f"Duplicate sandbox volume mount path: {normalized}")

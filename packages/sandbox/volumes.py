@@ -28,5 +28,15 @@ class SandboxVolume:
         workspace: str = "/workspace",
         create_if_missing: bool = True,
     ) -> SandboxVolume:
-        """Build a workspace volume mount."""
+        """Build a volume mount for the sandbox workspace.
+
+        Args:
+            volume: Modal volume name or prebuilt `modal.Volume` object.
+            workspace: Absolute sandbox path used as the workspace mount.
+            create_if_missing: Whether Modal should create a named volume when
+                it does not already exist.
+
+        Returns:
+            `SandboxVolume` mounted at `workspace`.
+        """
         return cls(volume=volume, mount_path=workspace, create_if_missing=create_if_missing)

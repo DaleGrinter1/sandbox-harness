@@ -390,6 +390,16 @@ def _print_json(payload: Any, *, file: Any = None) -> None:
 
 
 def _error_payload(error_type: str, message: str, exit_code: int) -> dict[str, object]:
+    """Build the standard JSON error envelope.
+
+    Args:
+        error_type: Stable machine-readable error category.
+        message: Human-readable error detail.
+        exit_code: Process exit code that will be used.
+
+    Returns:
+        JSON-serializable error payload.
+    """
     return {
         "status": "error",
         "error": {
@@ -402,6 +412,17 @@ def _error_payload(error_type: str, message: str, exit_code: int) -> dict[str, o
 
 
 def _exit_with_error(parser: argparse.ArgumentParser, error_type: str, message: str, exit_code: int) -> NoReturn:
+    """Print a JSON error envelope and terminate argparse.
+
+    Args:
+        parser: Parser used to perform the exit.
+        error_type: Stable machine-readable error category.
+        message: Human-readable error detail.
+        exit_code: Process exit code.
+
+    Raises:
+        SystemExit: Always raised by `parser.exit`.
+    """
     _print_json(_error_payload(error_type, message, exit_code), file=sys.stderr)
     parser.exit(exit_code)
 
@@ -410,10 +431,30 @@ class JsonArgumentParser(argparse.ArgumentParser):
     """Argument parser that keeps failures machine-readable."""
 
     def error(self, message: str) -> None:
+        """Report argument errors as JSON instead of argparse text.
+
+        Args:
+            message: Argument parsing error produced by argparse.
+
+        Raises:
+            SystemExit: Always raised with exit code 2.
+        """
         _exit_with_error(self, "argument_error", message, 2)
 
 
 def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
+    """Resolve a sandbox ID from positional or global CLI arguments.
+
+    Args:
+        args: Parsed CLI namespace.
+        parser: Parser used to report argument errors.
+
+    Returns:
+        Sandbox ID to operate on.
+
+    Raises:
+        SystemExit: If no ID is provided or positional/global IDs disagree.
+    """
     positional_id = getattr(args, "target_sandbox_id", None)
     global_id = args.sandbox_id
     if positional_id and global_id and positional_id != global_id:
@@ -425,6 +466,17 @@ def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 
 def _start_payload(sandbox: Sandbox) -> dict[str, object]:
+    """Build JSON output for a newly started long-lived sandbox.
+
+    Args:
+        sandbox: Created sandbox that should expose a provider ID.
+
+    Returns:
+        JSON-serializable start payload with reuse and stop commands.
+
+    Raises:
+        RuntimeError: If Modal did not expose a sandbox ID.
+    """
     sandbox_id = sandbox.sandbox_id
     if not sandbox_id:
         raise RuntimeError("Modal did not return a sandbox id.")
@@ -439,12 +491,26 @@ def _start_payload(sandbox: Sandbox) -> dict[str, object]:
 
 
 def _command_exit_code(result: Any) -> int:
+    """Convert a command result into a CLI process exit code.
+
+    Args:
+        result: Command-like object with `exit_code` and `timed_out`.
+
+    Returns:
+        Sandbox command exit code, 124 for timeout, or 1 for unavailable exit
+        status.
+    """
     if result.exit_code is not None:
         return result.exit_code
     return 124 if result.timed_out else 1
 
 
 def _package_version() -> str:
+    """Return the installed package version used by CLI metadata.
+
+    Returns:
+        Installed distribution version, or the local development fallback.
+    """
     try:
         return metadata.version("modal-sandbox-sdk")
     except metadata.PackageNotFoundError:
@@ -452,6 +518,11 @@ def _package_version() -> str:
 
 
 def _modal_package_info() -> dict[str, object]:
+    """Inspect whether the Modal Python package is importable.
+
+    Returns:
+        JSON-serializable package status and version.
+    """
     try:
         import modal
     except ImportError:
@@ -461,10 +532,17 @@ def _modal_package_info() -> dict[str, object]:
 
 
 def _modal_config_path() -> Path:
+    """Return the default Modal config path checked by `doctor`."""
     return Path.home() / ".modal.toml"
 
 
 def _credential_status() -> dict[str, object]:
+    """Inspect local Modal credential signals without contacting Modal.
+
+    Returns:
+        JSON-serializable credential status from environment and config file
+        presence.
+    """
     env_has_id = bool(os.environ.get("MODAL_TOKEN_ID"))
     env_has_secret = bool(os.environ.get("MODAL_TOKEN_SECRET"))
     config_path = _modal_config_path()
@@ -496,10 +574,20 @@ def _credential_status() -> dict[str, object]:
 
 
 def _recommended_setup_command() -> str:
+    """Return the setup command shown in local-development guidance."""
     return "uv run modal setup"
 
 
 def _readiness(modal_package: dict[str, object], credentials: dict[str, object]) -> dict[str, object]:
+    """Summarize whether the local environment looks ready for live sandboxes.
+
+    Args:
+        modal_package: Result from `_modal_package_info`.
+        credentials: Result from `_credential_status`.
+
+    Returns:
+        JSON-serializable readiness status, problems, and next steps.
+    """
     problems: list[str] = []
     next_steps: list[str] = []
 
@@ -527,14 +615,22 @@ def _readiness(modal_package: dict[str, object], credentials: dict[str, object])
 
 
 def _safe_quickstart_commands() -> list[str]:
+    """Return recommended commands that do not create Modal resources."""
     return [command["command"] for command in RECOMMENDED_FIRST_COMMANDS if command["creates_modal_resources"] is False]
 
 
 def _live_quickstart_command() -> str:
+    """Return the first live Modal verification command."""
     return "sandbox quickstart --run"
 
 
 def _schema_payload() -> dict[str, object]:
+    """Build the machine-readable CLI contract.
+
+    Returns:
+        JSON-serializable schema containing command metadata, lifecycle notes,
+        auth guidance, image aliases, and golden workflows.
+    """
     return {
         "name": "sandbox",
         "package": "modal-sandbox-sdk",
@@ -605,6 +701,11 @@ def _schema_payload() -> dict[str, object]:
 
 
 def _doctor_payload() -> dict[str, object]:
+    """Build local Modal readiness diagnostics without creating resources.
+
+    Returns:
+        JSON-serializable doctor payload.
+    """
     modal_package = _modal_package_info()
     credentials = _credential_status()
     readiness = _readiness(modal_package, credentials)
@@ -656,6 +757,15 @@ def _doctor_payload() -> dict[str, object]:
 
 
 def _quickstart_payload(*, creates_modal_resources: bool) -> dict[str, object]:
+    """Build quickstart preview or live-run metadata.
+
+    Args:
+        creates_modal_resources: Whether the surrounding command creates a live
+            Modal sandbox.
+
+    Returns:
+        JSON-serializable quickstart payload.
+    """
     modal_package = _modal_package_info()
     credentials = _credential_status()
     readiness = _readiness(modal_package, credentials)

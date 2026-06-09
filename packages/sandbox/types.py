@@ -20,7 +20,13 @@ __all__ = [
 
 @dataclass(frozen=True)
 class SandboxSnapshot:
-    """Volume-backed snapshot compatibility metadata."""
+    """Volume-backed snapshot compatibility metadata.
+
+    Attributes:
+        name: Modal volume name backing the workspace checkpoint.
+        kind: Snapshot implementation kind. Currently `modal_volume`.
+        workspace: Sandbox workspace path mounted to the volume.
+    """
 
     name: str
     kind: str

@@ -32,14 +32,29 @@ class CommandResult:
     max_output_bytes: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert the result into a JSON-serializable dictionary."""
+        """Convert the result into a JSON-serializable dictionary.
+
+        Returns:
+            Dictionary with the same fields as the dataclass, suitable for CLI
+            JSON output.
+        """
         return asdict(self)
 
 
 class SandboxCommand:
-    """Wrapper around a detached sandbox command process."""
+    """Wrapper around a detached sandbox command process.
+
+    The wrapped object is normally a Modal process handle. This class keeps the
+    public API small while allowing tests to pass fake process objects.
+    """
 
     def __init__(self, process: Any):
+        """Initialize the command wrapper.
+
+        Args:
+            process: Provider-specific process handle with stdout, stderr,
+                wait, and optional poll/returncode attributes.
+        """
         self._process = process
 
     @property
@@ -59,7 +74,17 @@ class SandboxCommand:
         return int(value) if value is not None else None
 
     def logs(self, stream: str = "stdout") -> Iterator[str]:
-        """Yield text log chunks from stdout or stderr."""
+        """Yield text log chunks from stdout or stderr.
+
+        Args:
+            stream: Stream name to read. Must be `stdout` or `stderr`.
+
+        Yields:
+            Decoded text chunks from the selected process stream.
+
+        Raises:
+            ValueError: If `stream` is not `stdout` or `stderr`.
+        """
         if stream not in {"stdout", "stderr"}:
             raise ValueError("stream must be 'stdout' or 'stderr'.")
         source = getattr(self._process, stream)
@@ -74,14 +99,22 @@ class SandboxCommand:
                 yield _decode_log_chunk(value)
 
     def wait(self) -> int | None:
-        """Wait for the command to complete and return its exit code."""
+        """Wait for the command to complete and return its exit code.
+
+        Returns:
+            Process exit code when the provider exposes one, otherwise `None`.
+        """
         result = self._process.wait()
         if result is not None:
             return int(result)
         return self.returncode
 
     def poll(self) -> int | None:
-        """Poll the command return code without blocking."""
+        """Poll the command return code without blocking.
+
+        Returns:
+            Process exit code if the command has completed, otherwise `None`.
+        """
         poll = getattr(self._process, "poll", None)
         if callable(poll):
             value = poll()
