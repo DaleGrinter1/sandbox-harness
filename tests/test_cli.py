@@ -4,7 +4,7 @@ import json
 import sys
 
 import pytest
-from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig
+from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig, SandboxSnapshot, SandboxVolume
 from sandbox_cli import cli
 
 
@@ -41,6 +41,7 @@ class FakeSandbox:
         self.sandbox_id = sandbox_id
         self.config = SandboxConfig()
         self.run_calls: list[tuple[str, str | None]] = []
+        self.run_command_calls: list[tuple[str, list[str], str | None, dict[str, str] | None]] = []
         self.mkdir_calls: list[tuple[str, bool]] = []
         self.remove_calls: list[tuple[str, bool]] = []
         self.copy_from_local_calls: list[tuple[str, str]] = []
@@ -53,6 +54,18 @@ class FakeSandbox:
         if command == "sh -c 'exit 7'":
             return CommandResult(command, "", "", 7, 1, max_output_bytes=max_output_bytes)
         return CommandResult(command, "ok\n", "", 0, 1, max_output_bytes=max_output_bytes)
+
+    def run_command(
+        self,
+        cmd: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
+        self.run_command_calls.append((cmd, args or [], cwd, env))
+        return CommandResult("python -c 'print(123)'", "argv ok\n", "", 0, 1, max_output_bytes=max_output_bytes)
 
     def write_text(self, path: str, content: str) -> None:
         self.written = (path, content)
@@ -83,6 +96,12 @@ class FakeSandbox:
 
     def terminate(self, *, wait: bool = True) -> None:
         self.terminated = wait
+
+    def domain(self, port: int) -> str:
+        return f"https://sandbox.example/{port}"
+
+    def create_snapshot(self) -> SandboxSnapshot:
+        return SandboxSnapshot(name="workspace-volume", kind="modal_volume", workspace=self.config.workspace)
 
 
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
@@ -127,7 +146,8 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
             "app_name": "modal-sandbox-sdk",
             "workspace": "/workspace",
             "image": "python:3.13-slim",
-            "workspace_volume": "workspace-volume",
+            "runtime": None,
+            "volumes": (SandboxVolume.workspace("workspace-volume"),),
             "env": {"A": "B"},
             "command_timeout": 12,
             "sandbox_timeout": 99,
@@ -137,6 +157,8 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
             "region": "us-east-1",
             "block_network": True,
             "max_output_bytes": 10 * 1024 * 1024,
+            "encrypted_ports": (),
+            "unencrypted_ports": (),
             "sandbox_id": None,
         }
     ]
@@ -216,6 +238,127 @@ def test_cli_run_passes_max_output_bytes(monkeypatch, capsys) -> None:
     assert exit_code == 0
     assert payload["max_output_bytes"] == 2048
     assert FakeSandbox.create_calls[-1]["max_output_bytes"] == 2048
+
+
+def test_cli_create_accepts_runtime_and_declared_ports(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--runtime",
+            "node24",
+            "--encrypted-port",
+            "3000",
+            "--unencrypted-port",
+            "9229",
+            "--volume",
+            "cache-volume:/cache",
+            "run",
+            "node --version",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert FakeSandbox.create_calls[-1]["image"] is None
+    assert FakeSandbox.create_calls[-1]["runtime"] == "node24"
+    assert FakeSandbox.create_calls[-1]["volumes"] == (SandboxVolume(volume="cache-volume", mount_path="/cache"),)
+    assert FakeSandbox.create_calls[-1]["encrypted_ports"] == (3000,)
+    assert FakeSandbox.create_calls[-1]["unencrypted_ports"] == (9229,)
+
+
+def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--volume", "cache-volume:cache", "run", "true"])
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == "argument --volume: --volume mount path must be absolute"
+
+
+def test_cli_run_command_uses_argv_api(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "run-command",
+            "--cwd",
+            "/workspace/app",
+            "--env",
+            "A=B",
+            "python",
+            "-c",
+            "print(123)",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["command"] == "python -c 'print(123)'"
+    assert payload["stdout"] == "argv ok\n"
+    assert FakeSandbox.instances[-1].run_command_calls == [
+        ("python", ["-c", "print(123)"], "/workspace/app", {"A": "B"})
+    ]
+
+
+def test_cli_run_command_can_return_command_exit_code(monkeypatch, capsys) -> None:
+    class NonzeroSandbox(FakeSandbox):
+        def run_command(
+            self,
+            cmd: str,
+            args: list[str] | None = None,
+            *,
+            cwd: str | None = None,
+            env: dict[str, str] | None = None,
+            max_output_bytes: int | None = None,
+        ) -> CommandResult:
+            return CommandResult("false", "", "", 7, 1, max_output_bytes=max_output_bytes)
+
+    NonzeroSandbox.create_calls = []
+    NonzeroSandbox.instances = []
+    NonzeroSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", NonzeroSandbox)
+
+    exit_code = cli.main(["run-command", "--use-command-exit-code", "false"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 7
+    assert payload["exit_code"] == 7
+
+
+def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    assert cli.main(["--sandbox-id", "sb-123", "domain", "3000"]) == 0
+    domain_payload = json.loads(capsys.readouterr().out)
+    assert domain_payload == {"port": 3000, "url": "https://sandbox.example/3000"}
+
+    assert cli.main(["--workspace-volume", "workspace-volume", "snapshot"]) == 0
+    snapshot_payload = json.loads(capsys.readouterr().out)
+    assert snapshot_payload == {
+        "kind": "modal_volume",
+        "name": "workspace-volume",
+        "status": "created",
+        "workspace": "/workspace",
+    }
 
 
 def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
@@ -378,7 +521,7 @@ def test_cli_write_input_options_are_mutually_exclusive(monkeypatch, capsys) -> 
     assert "not allowed with argument" in payload["error"]["message"]
 
 
-def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
+def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
@@ -395,49 +538,54 @@ def test_cli_schema_outputs_agent_readable_metadata_without_creating_sandbox(mon
     assert payload["commands"]["stop"]["creates_sandbox"] is False
     assert payload["commands"]["run"]["output"]["stdout"] == "string"
     assert payload["commands"]["run"]["output"]["stdout_truncated"] == "boolean"
+    assert payload["commands"]["run-command"]["output"]["stdout"] == "string"
+    assert payload["commands"]["domain"]["output"] == {"port": "integer", "url": "string"}
+    assert payload["commands"]["snapshot"]["output"]["kind"] == "modal_volume"
     assert payload["commands"]["quickstart"]["creates_sandbox"] is False
     assert payload["commands"]["quickstart"]["output"]["quickstart_command"] == "string"
     assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
+    assert payload["commands"]["doctor"]["output"]["summary"] == "object"
     assert payload["global_options"]["--max-output-bytes"] == (
         "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760."
     )
-    assert payload["commands"]["recipes"]["creates_sandbox"] is False
+    assert payload["global_options"]["--runtime"] == (
+        "Vercel-style runtime alias. Supported values: python3.13, node24, node22."
+    )
+    assert payload["global_options"]["--volume NAME:/mount"] == (
+        "Modal volume name and absolute sandbox mount path. Repeatable."
+    )
+    assert payload["lifecycle"]["volume_mounts"] == (
+        "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths."
+    )
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
-    assert payload["recipes"][0]["name"] == "first_run"
     assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
     assert payload["recommended_first_commands"][-1]["command"] == "sandbox quickstart --run"
-    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "recipes", "quickstart"]
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
     assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
+    assert "run-command" in payload["lifecycle"]["live_modal_commands"]
+    assert "domain" in payload["lifecycle"]["live_modal_commands"]
+    assert "snapshot" in payload["lifecycle"]["live_modal_commands"]
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
     assert payload["auth"]["setup_commands"][0] == "modal setup"
-    assert payload["companion_mcps"]["context7"]["required_for_runtime"] is False
-    assert payload["companion_mcps"]["google_mcp_collection"]["url"] == "https://github.com/google/mcp"
-    assert payload["companion_mcps"]["notion"]["url"] == "https://mcp.notion.com/mcp"
-    assert payload["companion_mcps"]["slack"]["url"] == "https://mcp.slack.com/mcp"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
 
-def test_cli_recipes_outputs_beginner_workflows_without_creating_sandbox(monkeypatch, capsys) -> None:
+def test_cli_recipes_is_not_a_public_command(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
-    exit_code = cli.main(["recipes"])
+    with pytest.raises(SystemExit) as error:
+        cli.main(["recipes"])
 
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0
-    assert payload["creates_modal_resources"] is False
-    assert payload["image_aliases"]["ubuntu24"] == "ubuntu:24.04"
-    assert [recipe["name"] for recipe in payload["recipes"]] == [
-        "first_run",
-        "cli_file_workflow",
-        "persistent_volume",
-        "long_lived_agent_workflow",
-    ]
-    assert payload["next_safe_command"] == "sandbox doctor"
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert error.value.code == 2
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "argument_error"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -467,6 +615,11 @@ def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch
     assert payload["recommended_commands"][-1]["command"] == "uv run modal setup"
     assert payload["creates_modal_resources"] is False
     assert payload["setup_commands"][0] == "modal setup"
+    assert payload["summary"] == {
+        "ready": False,
+        "message": "Modal credentials were not found. Run modal setup before creating a sandbox.",
+        "next_command": "uv run modal setup",
+    }
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -499,6 +652,11 @@ def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys,
     assert payload["ready_hint"] == (
         "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
     )
+    assert payload["summary"] == {
+        "ready": False,
+        "message": "Modal token environment variables are incomplete. Set both token variables before creating a sandbox.",
+        "next_command": "Set both MODAL_TOKEN_ID and MODAL_TOKEN_SECRET",
+    }
     assert payload["recommended_commands"][-1]["command"] == "uv run modal setup"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
@@ -527,6 +685,11 @@ def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, c
     ]
     assert payload["credentials"]["status"] == "configured_from_environment"
     assert payload["creates_modal_resources"] is False
+    assert payload["summary"] == {
+        "ready": True,
+        "message": "Modal is configured. You can run a live sandbox quickstart.",
+        "next_command": "sandbox quickstart --run",
+    }
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -549,7 +712,7 @@ def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp
     assert payload["status"] == "needs_setup"
     assert payload["creates_modal_resources"] is False
     assert payload["checks"]["ready"] is False
-    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox recipes", "sandbox quickstart"]
+    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox quickstart"]
     assert payload["live_command"] == "sandbox quickstart --run"
     assert payload["quickstart_command"] == "python -c 'print(123)'"
     assert FakeSandbox.create_calls == []
@@ -596,7 +759,8 @@ def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypa
             "app_name": "modal-sandbox-sdk",
             "workspace": "/work",
             "image": "python:3.13-slim",
-            "workspace_volume": None,
+            "runtime": None,
+            "volumes": (),
             "env": None,
             "command_timeout": 12,
             "sandbox_timeout": 99,
@@ -606,6 +770,8 @@ def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypa
             "region": "us-east-1",
             "block_network": True,
             "max_output_bytes": 10 * 1024 * 1024,
+            "encrypted_ports": (),
+            "unencrypted_ports": (),
             "sandbox_id": None,
         }
     ]

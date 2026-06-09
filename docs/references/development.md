@@ -12,6 +12,15 @@ uv build
 uv run sandbox --help
 ```
 
+Before cutting a release, also check the built package metadata and install path:
+
+```bash
+uv build
+uv run python -m pip install --force-reinstall dist/*.whl
+uv run python -c "from sandbox import Sandbox, SandboxVolume; from sandbox.volumes import SandboxVolume as V; assert SandboxVolume is V"
+uv run sandbox schema
+```
+
 Live Modal tests are opt-in:
 
 ```bash

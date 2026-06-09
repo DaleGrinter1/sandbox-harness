@@ -14,7 +14,6 @@ Use this skill when the user is new to `modal-sandbox-sdk` or asks for the safes
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
-uv run sandbox recipes
 uv run sandbox quickstart
 ```
 
@@ -29,7 +28,7 @@ uv run sandbox quickstart
 uv run sandbox --image py313 quickstart --run
 ```
 
-4. After the live check succeeds, choose the next path from `sandbox recipes`:
+4. After the live check succeeds, choose the next path from the README examples:
    - One-shot command: `sandbox --image py313 run "..."`
    - Persistent files: add `--workspace-volume my-workspace`.
    - Longer live workflow: use `sandbox start`, reuse `--sandbox-id`, then `sandbox stop`.

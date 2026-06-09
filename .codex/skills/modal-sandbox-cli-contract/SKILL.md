@@ -1,6 +1,6 @@
 ---
 name: modal-sandbox-cli-contract
-description: CLI contract maintenance guidance for modal-sandbox-sdk. Use when Codex changes sandbox CLI commands, arguments, JSON output shapes, schema metadata, recipes, help text, tests, or docs so parser behavior, schema output, examples, and validation stay aligned.
+description: CLI contract maintenance guidance for modal-sandbox-sdk. Use when Codex changes sandbox CLI commands, arguments, JSON output shapes, schema metadata, help text, tests, or docs so parser behavior, schema output, examples, and validation stay aligned.
 ---
 
 # Modal Sandbox CLI Contract
@@ -12,9 +12,9 @@ Use this skill when changing `packages/sandbox_cli/cli.py` or any CLI-facing doc
 Keep these in sync:
 
 - Argument parser and command implementation in `packages/sandbox_cli/cli.py`.
-- `COMMANDS_SCHEMA`, recipes, lifecycle notes, and image aliases in `cli.py`.
+- `COMMANDS_SCHEMA`, lifecycle notes, and image aliases in `cli.py`.
 - CLI tests in `tests/test_cli.py`.
-- README and `docs/cli.md` examples.
+- README and `docs/references/cli.md` examples.
 - Any skill instructions that mention affected commands.
 
 ## Change Workflow

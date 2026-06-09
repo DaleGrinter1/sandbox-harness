@@ -12,21 +12,12 @@ PY312 = _PY312
 PY311 = _PY311
 UBUNTU24 = _UBUNTU24
 
-PYTHON_313_SLIM = _PY313
-PYTHON_312_SLIM = _PY312
-PYTHON_311_SLIM = _PY311
-UBUNTU_2404 = _UBUNTU24
-
 __all__ = [
     "Images",
     "PY313",
     "PY312",
     "PY311",
     "UBUNTU24",
-    "PYTHON_313_SLIM",
-    "PYTHON_312_SLIM",
-    "PYTHON_311_SLIM",
-    "UBUNTU_2404",
 ]
 
 
@@ -41,9 +32,3 @@ class Images:
     PY312 = _PY312
     PY311 = _PY311
     UBUNTU24 = _UBUNTU24
-
-    # Backward-compatible aliases for callers who prefer explicit names.
-    PYTHON_313_SLIM = _PY313
-    PYTHON_312_SLIM = _PY312
-    PYTHON_311_SLIM = _PY311
-    UBUNTU_2404 = _UBUNTU24

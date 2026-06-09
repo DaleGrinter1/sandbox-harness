@@ -8,7 +8,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
-from sandbox import Images, ModalAuthenticationError, Sandbox
+from sandbox import Images, ModalAuthenticationError, Sandbox, SandboxVolume
 
 SETUP_COMMANDS = [
     "modal setup",
@@ -48,11 +48,6 @@ RECOMMENDED_FIRST_COMMANDS = [
         "purpose": "Check local Modal package and credential readiness.",
     },
     {
-        "command": "sandbox recipes",
-        "creates_modal_resources": False,
-        "purpose": "Choose a beginner workflow before creating resources.",
-    },
-    {
         "command": "sandbox quickstart",
         "creates_modal_resources": False,
         "purpose": "Preview the first live sandbox command.",
@@ -64,89 +59,16 @@ RECOMMENDED_FIRST_COMMANDS = [
     },
 ]
 
-RECIPES = [
-    {
-        "name": "first_run",
-        "summary": "Verify that a short-lived Modal Sandbox can run Python.",
-        "creates_modal_resources": True,
-        "commands": [
-            "sandbox doctor",
-            "sandbox quickstart",
-            "sandbox --image py313 quickstart --run",
-        ],
-    },
-    {
-        "name": "cli_file_workflow",
-        "summary": "Write code into a sandbox workspace, run it, and read it back.",
-        "creates_modal_resources": True,
-        "commands": [
-            "sandbox --image py313 --workspace-volume my-workspace write hello.py --content \"print('hello from sandbox')\"",
-            'sandbox --image py313 --workspace-volume my-workspace run "python hello.py"',
-            "sandbox --image py313 --workspace-volume my-workspace read hello.py",
-        ],
-    },
-    {
-        "name": "persistent_volume",
-        "summary": "Keep files across separate sandbox lifetimes with a Modal volume.",
-        "creates_modal_resources": True,
-        "commands": [
-            'sandbox --image py313 --workspace-volume my-workspace write notes.txt --content "persistent content"',
-            "sandbox --image py313 --workspace-volume my-workspace ls .",
-            "sandbox --image py313 --workspace-volume my-workspace read notes.txt",
-        ],
-    },
-    {
-        "name": "long_lived_agent_workflow",
-        "summary": "Create one live sandbox, reuse it with --sandbox-id, then stop it.",
-        "creates_modal_resources": True,
-        "commands": [
-            "sandbox --image py313 start",
-            "sandbox --sandbox-id <sandbox_id> write hello.py --content \"print('hello')\"",
-            'sandbox --sandbox-id <sandbox_id> run "python hello.py"',
-            "sandbox stop <sandbox_id>",
-        ],
-    },
-]
-
-COMPANION_MCPS = {
-    "context7": {
-        "purpose": "Fetch up-to-date, version-specific library documentation for agents.",
-        "use_when": "An agent needs current docs for Modal, Python packaging, pytest, or other dependencies.",
-        "url": "https://context7.com/docs",
-        "required_for_runtime": False,
-    },
-    "google_mcp_collection": {
-        "purpose": "Find Google's MCP servers for Google Cloud, Workspace, Chrome DevTools, and related tools.",
-        "use_when": "An agent needs Google Cloud or Google Workspace context around examples, deployment, or docs.",
-        "url": "https://github.com/google/mcp",
-        "required_for_runtime": False,
-    },
-    "gcloud_mcp": {
-        "purpose": "Let agents inspect or operate Google Cloud through the gcloud CLI.",
-        "use_when": "Work involves Google Cloud projects, Cloud Run, Cloud Storage, or deployment automation.",
-        "url": "https://github.com/googleapis/gcloud-mcp",
-        "required_for_runtime": False,
-    },
-    "mcp_toolbox_for_databases": {
-        "purpose": "Expose database tools through Google's MCP Toolbox.",
-        "use_when": "Future examples add BigQuery, Cloud SQL, AlloyDB, Spanner, Firestore, or PostgreSQL workflows.",
-        "url": "https://github.com/googleapis/mcp-toolbox",
-        "required_for_runtime": False,
-    },
-    "notion": {
-        "purpose": "Connect agents to Notion project docs, task notes, specs, and release notes.",
-        "use_when": "Project decisions, planning notes, or documentation live in Notion.",
-        "url": "https://mcp.notion.com/mcp",
-        "docs_url": "https://developers.notion.com/guides/mcp/overview",
-        "required_for_runtime": False,
-    },
-    "slack": {
-        "purpose": "Connect agents to Slack channels, threads, canvases, and team context.",
-        "use_when": "Agents need project discussion history, decisions, or status updates from Slack.",
-        "url": "https://mcp.slack.com/mcp",
-        "docs_url": "https://docs.slack.dev/ai/slack-mcp-server/",
-        "required_for_runtime": False,
-    },
+COMMAND_RESULT_SCHEMA = {
+    "command": "string",
+    "stdout": "string",
+    "stderr": "string",
+    "exit_code": "integer|null",
+    "duration_ms": "integer",
+    "timed_out": "boolean",
+    "stdout_truncated": "boolean",
+    "stderr_truncated": "boolean",
+    "max_output_bytes": "integer|null",
 }
 
 COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
@@ -155,7 +77,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "creates_sandbox": True,
         "arguments": {},
         "options": {
-            "global creation options": "Supports --image, --workspace, --workspace-volume, --env, resources, and timeout flags."
+            "global creation options": "Supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, resources, ports, and timeout flags."
         },
         "output": {
             "sandbox_id": "string",
@@ -184,18 +106,24 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
             "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately.",
         },
-        "output": {
-            "command": "string",
-            "stdout": "string",
-            "stderr": "string",
-            "exit_code": "integer|null",
-            "duration_ms": "integer",
-            "timed_out": "boolean",
-            "stdout_truncated": "boolean",
-            "stderr_truncated": "boolean",
-            "max_output_bytes": "integer|null",
-        },
+        "output": COMMAND_RESULT_SCHEMA,
         "example": "sandbox --image python:3.13-slim run \"python -c 'print(123)'\"",
+    },
+    "run-command": {
+        "summary": "Run an argv-style command without shell wrapping.",
+        "creates_sandbox": True,
+        "arguments": {
+            "cmd": "Executable to run.",
+            "args": "Arguments passed to the executable without shell parsing.",
+        },
+        "options": {
+            "--cwd": "Working directory inside the sandbox.",
+            "--env KEY=VALUE": "Per-command environment variable. Repeatable.",
+            "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
+            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately.",
+        },
+        "output": COMMAND_RESULT_SCHEMA,
+        "example": "sandbox --runtime python3.13 run-command python -c 'print(123)'",
     },
     "write": {
         "summary": "Write UTF-8 text to a file inside the sandbox workspace.",
@@ -263,6 +191,22 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "output": {"local_path": "string", "remote_path": "string", "status": "downloaded"},
         "example": "sandbox --workspace-volume work download output.txt output.txt",
     },
+    "domain": {
+        "summary": "Print the public URL for a declared sandbox port.",
+        "creates_sandbox": True,
+        "arguments": {"port": "Port declared with --encrypted-port or --unencrypted-port at sandbox creation."},
+        "options": {},
+        "output": {"port": "integer", "url": "string"},
+        "example": "sandbox --sandbox-id sb-abc123 domain 3000",
+    },
+    "snapshot": {
+        "summary": "Create a volume-backed workspace snapshot checkpoint.",
+        "creates_sandbox": True,
+        "arguments": {},
+        "options": {"requires --workspace-volume": "Snapshot checkpoints are backed by the workspace Modal volume."},
+        "output": {"name": "string", "kind": "modal_volume", "workspace": "string", "status": "created"},
+        "example": "sandbox --workspace-volume work snapshot",
+    },
     "schema": {
         "summary": "Print this machine-readable CLI schema.",
         "creates_sandbox": False,
@@ -270,18 +214,6 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {},
         "output": {"schema_version": "string", "commands": "object"},
         "example": "sandbox schema",
-    },
-    "recipes": {
-        "summary": "Print beginner workflow recipes as JSON without creating Modal resources.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {},
-        "output": {
-            "creates_modal_resources": "false",
-            "recipes": "object[]",
-            "image_aliases": "object",
-        },
-        "example": "sandbox recipes",
     },
     "doctor": {
         "summary": "Inspect local Modal package and credential setup, with beginner next steps.",
@@ -298,6 +230,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "credentials": "object",
             "setup_commands": "string[]",
             "creates_modal_resources": "false",
+            "summary": "object",
         },
         "example": "sandbox doctor",
     },
@@ -307,7 +240,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "arguments": {},
         "options": {
             "--run": "Create a short-lived Modal Sandbox and run the quickstart Python command.",
-            "global creation options": "With --run, supports --image, --workspace, --env, resources, and timeout flags.",
+            "global creation options": "With --run, supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, resources, ports, and timeout flags.",
         },
         "output": {
             "creates_modal_resources": "boolean",
@@ -355,10 +288,28 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _parse_volume(value: str) -> SandboxVolume:
+    if ":" not in value:
+        raise argparse.ArgumentTypeError("--volume values must use NAME:/absolute/path")
+    name, mount_path = value.split(":", 1)
+    if not name:
+        raise argparse.ArgumentTypeError("--volume name must not be empty")
+    if not mount_path.startswith("/"):
+        raise argparse.ArgumentTypeError("--volume mount path must be absolute")
+    return SandboxVolume(volume=name, mount_path=mount_path)
+
+
 def _resolve_cli_image(image: str | None) -> str | None:
     if image is None:
         return None
     return IMAGE_ALIASES.get(image.lower(), image)
+
+
+def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
+    volumes = list(args.volume)
+    if args.workspace_volume:
+        volumes.insert(0, SandboxVolume.workspace(args.workspace_volume, workspace=args.workspace))
+    return tuple(volumes)
 
 
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
@@ -368,7 +319,8 @@ def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | obj
         app_name=args.app_name,
         workspace=args.workspace,
         image=_resolve_cli_image(args.image),
-        workspace_volume=args.workspace_volume,
+        runtime=args.runtime,
+        volumes=_volumes_from_args(args),
         env=_parse_env(args.env) if args.env else None,
         command_timeout=args.timeout,
         sandbox_timeout=args.sandbox_timeout,
@@ -378,13 +330,15 @@ def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | obj
         region=args.region,
         block_network=args.block_network,
         max_output_bytes=args.max_output_bytes,
+        encrypted_ports=tuple(args.encrypted_port),
+        unencrypted_ports=tuple(args.unencrypted_port),
         sandbox_id=effective_sandbox_id,
     )
 
 
 def _print_json(payload: Any, *, file: Any = None) -> None:
     """Print a JSON response for shell-friendly CLI output."""
-    print(json.dumps(payload, indent=2, sort_keys=True), file=file or sys.stdout)
+    print(json.dumps(payload, indent=2), file=file or sys.stdout)
 
 
 def _error_payload(error_type: str, message: str, exit_code: int) -> dict[str, object]:
@@ -434,6 +388,12 @@ def _start_payload(sandbox: Sandbox) -> dict[str, object]:
         "use_command": f'sandbox --sandbox-id {sandbox_id} run "python --version"',
         "stop_command": f"sandbox stop {sandbox_id}",
     }
+
+
+def _command_exit_code(result: Any) -> int:
+    if result.exit_code is not None:
+        return result.exit_code
+    return 124 if result.timed_out else 1
 
 
 def _package_version() -> str:
@@ -538,7 +498,9 @@ def _schema_payload() -> dict[str, object]:
             "--app-name": "Modal app name used for sandbox creation.",
             "--workspace": "Default sandbox directory for relative paths.",
             "--image": "Registry image tag or supported alias passed to Modal.",
+            "--runtime": "Vercel-style runtime alias. Supported values: python3.13, node24, node22.",
             "--workspace-volume": "Modal volume name mounted at the workspace path.",
+            "--volume NAME:/mount": "Modal volume name and absolute sandbox mount path. Repeatable.",
             "--env KEY=VALUE": "Environment variable passed to the sandbox. Repeatable.",
             "--timeout": "Command timeout in seconds for run.",
             "--sandbox-timeout": "Modal sandbox lifetime timeout in seconds.",
@@ -549,6 +511,8 @@ def _schema_payload() -> dict[str, object]:
             "--block-network": "Block outbound network access from the sandbox.",
             "--sandbox-id": "Attach to an existing Modal sandbox instead of creating one.",
             "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760.",
+            "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
+            "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
         },
         "path_rules": {
             "relative_paths": "Resolved inside the sandbox workspace.",
@@ -557,12 +521,13 @@ def _schema_payload() -> dict[str, object]:
         },
         "lifecycle": {
             "creates_or_attaches_per_command": True,
-            "safe_discovery_commands": ["schema", "doctor", "recipes", "quickstart"],
+            "safe_discovery_commands": ["schema", "doctor", "quickstart"],
             "live_modal_commands": [
                 "quickstart --run",
                 "start",
                 "stop",
                 "run",
+                "run-command",
                 "write",
                 "read",
                 "ls",
@@ -570,11 +535,14 @@ def _schema_payload() -> dict[str, object]:
                 "rm",
                 "upload",
                 "download",
+                "domain",
+                "snapshot",
             ],
             "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
             "created_sandboxes_close_behavior": "terminate",
             "attached_sandboxes_close_behavior": "detach",
             "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
+            "volume_mounts": "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths.",
         },
         "auth": {
             "requires_modal_credentials": True,
@@ -583,8 +551,6 @@ def _schema_payload() -> dict[str, object]:
         },
         "image_aliases": IMAGE_ALIASES,
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
-        "recipes": RECIPES,
-        "companion_mcps": COMPANION_MCPS,
         "commands": COMMANDS_SCHEMA,
     }
 
@@ -611,6 +577,22 @@ def _doctor_payload() -> dict[str, object]:
     else:
         ready_hint = "Modal credentials appear to be configured."
 
+    if readiness["ready"]:
+        summary = {
+            "ready": True,
+            "message": "Modal is configured. You can run a live sandbox quickstart.",
+            "next_command": "sandbox quickstart --run",
+        }
+    else:
+        next_command = _recommended_setup_command()
+        if credentials["status"] == "partial_environment":
+            next_command = "Set both MODAL_TOKEN_ID and MODAL_TOKEN_SECRET"
+        summary = {
+            "ready": False,
+            "message": ready_hint,
+            "next_command": next_command,
+        }
+
     return {
         **readiness,
         "modal_package": modal_package,
@@ -620,6 +602,7 @@ def _doctor_payload() -> dict[str, object]:
         "setup_commands": SETUP_COMMANDS,
         "creates_modal_resources": False,
         "next_safe_command": "sandbox quickstart",
+        "summary": summary,
     }
 
 
@@ -644,15 +627,6 @@ def _quickstart_payload(*, creates_modal_resources: bool) -> dict[str, object]:
     }
 
 
-def _recipes_payload() -> dict[str, object]:
-    return {
-        "creates_modal_resources": False,
-        "image_aliases": IMAGE_ALIASES,
-        "recipes": RECIPES,
-        "next_safe_command": "sandbox doctor",
-    }
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser.
 
@@ -667,10 +641,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Operational commands print JSON. Discovery commands do not create Modal resources."
         ),
         epilog=(
-            "Agent-friendly discovery:\n"
+            "Machine-readable discovery:\n"
             "  sandbox schema            Print command metadata, output shapes, and examples as JSON.\n"
             "  sandbox doctor            Inspect local Modal setup without creating a sandbox.\n"
-            "  sandbox recipes           Print beginner workflow recipes as JSON.\n"
             "  sandbox quickstart        Preview the first live sandbox command as JSON.\n"
             "  sandbox --image ... start Create a reusable sandbox and print its ID.\n\n"
             "First time using Modal? Run `modal setup` to sign in. "
@@ -684,7 +657,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
     parser.add_argument("--workspace", default="/workspace")
     parser.add_argument("--image", help="Registry image tag or alias such as py313, py312, py311, or ubuntu24.")
+    parser.add_argument("--runtime", choices=["python3.13", "node24", "node22"], help="Runtime alias such as python3.13.")
     parser.add_argument("--workspace-volume")
+    parser.add_argument("--volume", type=_parse_volume, action="append", default=[], metavar="NAME:/MOUNT")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--sandbox-timeout", type=int, default=300)
@@ -695,6 +670,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-network", action="store_true")
     parser.add_argument("--sandbox-id")
     parser.add_argument("--max-output-bytes", type=_positive_int, default=10 * 1024 * 1024)
+    parser.add_argument("--encrypted-port", type=_positive_int, action="append", default=[], metavar="PORT")
+    parser.add_argument("--unencrypted-port", type=_positive_int, action="append", default=[], metavar="PORT")
     parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
 
     subparsers = parser.add_subparsers(dest="command_name", required=True, parser_class=JsonArgumentParser)
@@ -712,6 +689,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exit with the sandbox command's exit code instead of 0.",
     )
     run_parser.add_argument("command")
+
+    run_command_parser = subparsers.add_parser("run-command", help="Run an argv-style command inside the sandbox.")
+    run_command_parser.add_argument("--cwd", help="Working directory inside the sandbox.")
+    run_command_parser.add_argument("--env", action="append", default=[], dest="command_env", metavar="KEY=VALUE")
+    run_command_parser.add_argument(
+        "--use-command-exit-code",
+        action="store_true",
+        help="Exit with the sandbox command's exit code instead of 0.",
+    )
+    run_command_parser.add_argument("cmd")
+    run_command_parser.add_argument("args", nargs=argparse.REMAINDER)
 
     write_parser = subparsers.add_parser("write", help="Write a text file inside the sandbox workspace.")
     write_parser.add_argument("path")
@@ -742,9 +730,12 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument("remote_path")
     download_parser.add_argument("local_path")
 
-    subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
+    domain_parser = subparsers.add_parser("domain", help="Print the public URL for a declared sandbox port.")
+    domain_parser.add_argument("port", type=_positive_int)
 
-    subparsers.add_parser("recipes", help="Print beginner workflow recipes without creating a sandbox.")
+    subparsers.add_parser("snapshot", help="Create a volume-backed workspace snapshot checkpoint.")
+
+    subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
 
     subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
 
@@ -782,10 +773,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command_name == "schema":
         _print_json(_schema_payload())
-        return 0
-
-    if args.command_name == "recipes":
-        _print_json(_recipes_payload())
         return 0
 
     if args.command_name == "doctor":
@@ -842,9 +829,18 @@ def main(argv: list[str] | None = None) -> int:
             result = sandbox.run(args.command, cwd=args.cwd, max_output_bytes=args.max_output_bytes)
             _print_json(result.to_dict())
             if args.use_command_exit_code:
-                if result.exit_code is not None:
-                    return result.exit_code
-                return 124 if result.timed_out else 1
+                return _command_exit_code(result)
+        elif args.command_name == "run-command":
+            result = sandbox.run_command(
+                args.cmd,
+                args.args,
+                cwd=args.cwd,
+                env=_parse_env(args.command_env) if args.command_env else None,
+                max_output_bytes=args.max_output_bytes,
+            )
+            _print_json(result.to_dict())
+            if args.use_command_exit_code:
+                return _command_exit_code(result)
         elif args.command_name == "write":
             sandbox.write_text(args.path, _write_content_from_args(args))
             _print_json({"path": args.path, "status": "wrote"})
@@ -865,6 +861,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command_name == "download":
             sandbox.copy_to_local(args.remote_path, args.local_path)
             _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "downloaded"})
+        elif args.command_name == "domain":
+            _print_json({"port": args.port, "url": sandbox.domain(args.port)})
+        elif args.command_name == "snapshot":
+            snapshot = sandbox.create_snapshot()
+            _print_json(
+                {
+                    "kind": snapshot.kind,
+                    "name": snapshot.name,
+                    "status": "created",
+                    "workspace": snapshot.workspace,
+                }
+            )
         else:
             parser.error(f"Unknown command: {args.command_name}")
     except argparse.ArgumentTypeError as exc:

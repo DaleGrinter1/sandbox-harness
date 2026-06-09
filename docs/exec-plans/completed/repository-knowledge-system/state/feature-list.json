@@ -1,0 +1,40 @@
+{
+  "initiative": "repository-knowledge-system",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "knowledge-layout",
+      "title": "Scaffold canonical repository knowledge layout",
+      "description": "Create required docs, indexes, governance files, and generated schema placeholder.",
+      "priority": 1,
+      "passes": true,
+      "evidence": [
+        "docs/exec-plans/index.md exists",
+        "docs/product-specs index exists",
+        "ARCHITECTURE.md exists"
+      ]
+    },
+    {
+      "id": "json-state-workflow",
+      "title": "Use markdown plan plus JSON state for active initiatives",
+      "description": "Represent implementation checklist, handoff, and progress with JSON/JSONL files.",
+      "priority": 2,
+      "passes": true,
+      "evidence": [
+        "state/feature-list.json exists",
+        "state/session-state.json exists",
+        "state/progress.jsonl exists"
+      ]
+    },
+    {
+      "id": "execplan-validation",
+      "title": "Validate active execution plan structure",
+      "description": "Add scripts that reject missing sections, invalid state, and deprecated task directories.",
+      "priority": 3,
+      "passes": true,
+      "evidence": [
+        "./scripts/execplan/check.sh passed"
+      ]
+    }
+  ]
+}

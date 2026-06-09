@@ -22,6 +22,9 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
         "packages/sandbox",
         "packages/sandbox_cli",
     ]
+    assert data["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"] == {
+        "packages/sandbox/py.typed": "sandbox/py.typed",
+    }
     assert data["dependency-groups"]["dev"] == ["pyright>=1.1.407", "pytest>=8.0", "ruff>=0.14.0"]
     assert data["tool"]["ruff"]["line-length"] == 120
     assert data["tool"]["pyright"]["typeCheckingMode"] == "basic"
@@ -29,14 +32,33 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
 
 def test_public_imports_are_available() -> None:
     sdk = importlib.import_module("sandbox")
+    commands = importlib.import_module("sandbox.commands")
+    errors = importlib.import_module("sandbox.errors")
+    files = importlib.import_module("sandbox.files")
+    volumes = importlib.import_module("sandbox.volumes")
 
     assert hasattr(sdk, "Sandbox")
     assert hasattr(sdk, "CommandResult")
     assert hasattr(sdk, "ModalAuthenticationError")
+    assert hasattr(sdk, "RuntimeSpec")
+    assert hasattr(sdk, "SandboxCommand")
+    assert hasattr(sdk, "SandboxConfigurationError")
     assert hasattr(sdk, "SandboxConfig")
     assert hasattr(sdk, "SandboxError")
+    assert hasattr(sdk, "SandboxFile")
     assert hasattr(sdk, "SandboxProviderError")
+    assert hasattr(sdk, "SandboxSnapshot")
+    assert hasattr(sdk, "SandboxVolume")
     assert hasattr(sdk, "Images")
+    assert sdk.CommandResult is commands.CommandResult
+    assert sdk.SandboxCommand is commands.SandboxCommand
+    assert sdk.ModalAuthenticationError is errors.ModalAuthenticationError
+    assert sdk.SandboxConfigurationError is errors.SandboxConfigurationError
+    assert sdk.SandboxError is errors.SandboxError
+    assert sdk.SandboxProviderError is errors.SandboxProviderError
+    assert sdk.SandboxFile is files.SandboxFile
+    assert sdk.SandboxVolume is volumes.SandboxVolume
+    assert hasattr(volumes, "VolumeSpec")
 
 
 def test_license_file_is_present() -> None:
@@ -53,25 +75,29 @@ def test_image_presets_are_registry_tags() -> None:
     assert Images.PY312 == "python:3.12-slim"
     assert Images.PY311 == "python:3.11-slim"
     assert Images.UBUNTU24 == "ubuntu:24.04"
-    assert Images.PYTHON_313_SLIM == "python:3.13-slim"
-    assert Images.PYTHON_312_SLIM == "python:3.12-slim"
-    assert Images.PYTHON_311_SLIM == "python:3.11-slim"
-    assert Images.UBUNTU_2404 == "ubuntu:24.04"
 
 
 def test_python_version_file_pins_local_development_runtime() -> None:
     assert Path(".python-version").read_text(encoding="utf-8").strip() == "3.13"
 
 
+def test_package_marks_inline_types() -> None:
+    assert Path("packages/sandbox/py.typed").exists()
+
+
 def test_beginner_examples_are_present() -> None:
     examples = Path("examples")
 
     assert (examples / "run_python.py").read_text(encoding="utf-8")
+    assert (examples / "argv_command.py").read_text(encoding="utf-8")
+    assert (examples / "node_dev_server.py").read_text(encoding="utf-8")
+    assert (examples / "reuse_sandbox.py").read_text(encoding="utf-8")
+    assert (examples / "volume_mounts.py").read_text(encoding="utf-8")
     assert (examples / "cli_file_workflow.sh").read_text(encoding="utf-8").startswith("#!/usr/bin/env sh")
     assert (examples / "persistent_volume.sh").read_text(encoding="utf-8").startswith("#!/usr/bin/env sh")
 
 
-def test_repo_local_skills_are_model_neutral_source_artifacts() -> None:
+def test_repo_local_codex_helpers_are_development_only_source_artifacts() -> None:
     expected_skills = {
         "modal-sandbox-cli-contract",
         "modal-sandbox-first-run",
@@ -82,7 +108,12 @@ def test_repo_local_skills_are_model_neutral_source_artifacts() -> None:
         "modal-sandbox-provider-adapter",
         "modal-sandbox-python-sdk",
     }
-    skills_root = Path("skills")
+    codex_root = Path(".codex")
+    skills_root = codex_root / "skills"
+
+    assert (codex_root / "config.toml").read_text(encoding="utf-8")
+    assert (codex_root / "README.md").read_text(encoding="utf-8")
+
     skill_dirs = {path.name for path in skills_root.iterdir() if path.is_dir()}
 
     assert skill_dirs == expected_skills

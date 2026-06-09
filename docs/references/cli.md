@@ -10,18 +10,15 @@ These commands do not create Modal resources:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
-uv run sandbox recipes
 uv run sandbox quickstart
 ```
 
 `sandbox schema` prints command metadata, output shapes, lifecycle notes, path
-rules, optional companion MCPs, auth setup commands, and examples as JSON.
+rules, auth setup commands, and examples as JSON.
 
 `sandbox doctor` reports whether the Modal Python package is importable and
 whether credentials appear to be configured through environment variables or
 `~/.modal.toml`, plus beginner next steps.
-
-`sandbox recipes` prints beginner workflow recipes as JSON.
 
 `sandbox quickstart` previews a first live command without creating resources.
 Use `sandbox quickstart --run` to create a short-lived sandbox and run
@@ -35,13 +32,20 @@ Run a command:
 uv run sandbox --image py313 run "python -c 'print(123)'"
 ```
 
+Use `run-command` when you want argv-style execution without shell wrapping:
+
+```bash
+uv run sandbox --runtime python3.13 run-command python -c "print(123)"
+```
+
 By default, `sandbox run` exits with status `0` when the SDK call succeeds,
 even if the command inside the sandbox exits nonzero. Use
 `--use-command-exit-code` when shell scripts should receive the sandbox
-command's exit status:
+command's exit status. The same flag works with `run-command`:
 
 ```bash
 uv run sandbox run --use-command-exit-code "python -c 'raise SystemExit(7)'"
+uv run sandbox run-command --use-command-exit-code python -c "raise SystemExit(7)"
 ```
 
 Use `--max-output-bytes` to change the captured stdout/stderr cap for CLI
@@ -50,6 +54,13 @@ captured; it does not live-stream output.
 
 ```bash
 uv run sandbox --max-output-bytes 1048576 run "python noisy.py"
+```
+
+Mount additional Modal volumes with `--volume NAME:/absolute/path`:
+
+```bash
+uv run sandbox --volume cache-volume:/cache run "ls /cache"
+uv run sandbox --workspace-volume my-workspace --volume cache-volume:/cache run "ls /workspace /cache"
 ```
 
 ## File Workflows
@@ -85,12 +96,21 @@ uv run sandbox --workspace-volume my-workspace mkdir notes
 uv run sandbox --workspace-volume my-workspace rm notes --recursive
 ```
 
+Create a volume-backed workspace checkpoint:
+
+```bash
+uv run sandbox --workspace-volume my-workspace snapshot
+```
+
+The snapshot response names the mounted workspace volume that backs the
+checkpoint. It does not call Modal's local `Volume.commit()` API.
+
 ## Long-Lived Sandboxes
 
 Create a reusable sandbox:
 
 ```bash
-uv run sandbox --image py313 start
+uv run sandbox --runtime node24 --encrypted-port 3000 --volume node-cache:/cache start
 ```
 
 The output includes a `sandbox_id`. Reuse it with `--sandbox-id`:
@@ -99,6 +119,7 @@ The output includes a `sandbox_id`. Reuse it with `--sandbox-id`:
 uv run sandbox --sandbox-id sb-abc123 write hello.py --content "print('hello')"
 uv run sandbox --sandbox-id sb-abc123 run "python hello.py"
 uv run sandbox --sandbox-id sb-abc123 read hello.py
+uv run sandbox --sandbox-id sb-abc123 domain 3000
 ```
 
 Terminate it when you are done:

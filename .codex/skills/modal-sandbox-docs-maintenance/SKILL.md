@@ -10,20 +10,20 @@ Use this skill when editing repo documentation, examples, or user-facing workflo
 ## Docs Map
 
 - `README.md`: front door, quickstart, short SDK and CLI examples, links.
-- `docs/cli.md`: detailed CLI workflows.
-- `docs/modal-setup.md`: Modal authentication and SDK exception notes.
-- `docs/agents.md`: agent-safe workflow and companion MCP notes.
-- `docs/development.md`: validation commands and live test opt-in.
+- `docs/references/cli.md`: detailed CLI workflows.
+- `docs/references/modal-setup.md`: Modal authentication and SDK exception notes.
+- `.codex/README.md`: repo-local MCP and skill notes.
+- `docs/references/development.md`: validation commands and live test opt-in.
 - `CONTRIBUTING.md`: contributor workflow and release checklist.
 - `CHANGELOG.md`: user-visible change notes.
-- `skills/*/SKILL.md`: portable agent instructions.
+- `.codex/skills/*/SKILL.md`: portable agent instructions.
 
 ## Drift Checks
 
 When changing commands, options, or workflow behavior, check:
 
 - README quickstart.
-- `docs/cli.md`.
+- `docs/references/cli.md`.
 - `uv run sandbox schema` descriptions in `packages/sandbox_cli/cli.py`.
 - Examples under `examples/`.
 - Relevant repo-local skills.
@@ -39,7 +39,6 @@ When changing commands, options, or workflow behavior, check:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
-uv run sandbox recipes
 uv run sandbox quickstart
 ```
 

@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """Result returned after running a command in a sandbox.
+
+    Attributes:
+        command: Shell command that was requested.
+        stdout: Captured standard output.
+        stderr: Captured standard error.
+        exit_code: Process exit code, or `None` when unavailable.
+        duration_ms: Wall-clock command duration in milliseconds.
+        timed_out: Whether command execution hit the configured timeout.
+        stdout_truncated: Whether stdout was truncated by the output guard.
+        stderr_truncated: Whether stderr was truncated by the output guard.
+        max_output_bytes: Maximum bytes allowed per output stream.
+    """
+
+    command: str
+    stdout: str
+    stderr: str
+    exit_code: int | None
+    duration_ms: int
+    timed_out: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    max_output_bytes: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the result into a JSON-serializable dictionary."""
+        return asdict(self)
+
+
+class SandboxCommand:
+    """Wrapper around a detached sandbox command process."""
+
+    def __init__(self, process: Any):
+        self._process = process
+
+    @property
+    def stdout(self) -> Any:
+        """Return the process stdout stream."""
+        return self._process.stdout
+
+    @property
+    def stderr(self) -> Any:
+        """Return the process stderr stream."""
+        return self._process.stderr
+
+    @property
+    def returncode(self) -> int | None:
+        """Return the process return code when available."""
+        value = getattr(self._process, "returncode", None)
+        return int(value) if value is not None else None
+
+    def logs(self, stream: str = "stdout") -> Iterator[str]:
+        """Yield text log chunks from stdout or stderr."""
+        if stream not in {"stdout", "stderr"}:
+            raise ValueError("stream must be 'stdout' or 'stderr'.")
+        source = getattr(self._process, stream)
+        if hasattr(source, "__iter__"):
+            for chunk in source:
+                yield _decode_log_chunk(chunk)
+            return
+        read = getattr(source, "read", None)
+        if callable(read):
+            value = read()
+            if value:
+                yield _decode_log_chunk(value)
+
+    def wait(self) -> int | None:
+        """Wait for the command to complete and return its exit code."""
+        result = self._process.wait()
+        if result is not None:
+            return int(result)
+        return self.returncode
+
+    def poll(self) -> int | None:
+        """Poll the command return code without blocking."""
+        poll = getattr(self._process, "poll", None)
+        if callable(poll):
+            value = poll()
+            return value if isinstance(value, int) else None
+        return self.returncode
+
+
+def _decode_log_chunk(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)

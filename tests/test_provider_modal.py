@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from sandbox.errors import ModalAuthenticationError, SandboxProviderError
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path
-from sandbox.types import ModalAuthenticationError, SandboxConfig, SandboxProviderError
+from sandbox.types import SandboxConfig
+from sandbox.volumes import SandboxVolume
 
 
 class FakeAuthError(Exception):
@@ -23,10 +26,13 @@ class FakeProcess:
     def __init__(self, stdout: str = "ok\n", stderr: str = "") -> None:
         self.stdout = FakeStream(stdout)
         self.stderr = FakeStream(stderr)
-        self.returncode = 0
+        self.returncode: int | None = 0
 
-    def wait(self) -> None:
-        return None
+    def wait(self) -> int | None:
+        return self.returncode
+
+    def poll(self) -> int | None:
+        return self.returncode
 
 
 class FakeFilesystem:
@@ -75,6 +81,7 @@ class FakeSandboxObject:
         self.stderr = ""
         self.terminated = False
         self.detached = False
+        self.tunnel_map: dict[int, object] = {3000: SimpleNamespace(url="https://sandbox.example")}
 
     def exec(self, *args: object, **kwargs: object) -> FakeProcess:
         if self.raise_auth_error_on_exec:
@@ -83,6 +90,9 @@ class FakeSandboxObject:
             raise RuntimeError("provider failed")
         self.exec_calls.append((args, kwargs))
         return FakeProcess(stdout=self.stdout, stderr=self.stderr)
+
+    def tunnels(self) -> dict[int, object]:
+        return self.tunnel_map
 
     def terminate(self, *, wait: bool = True) -> None:
         self.terminated = wait
@@ -98,9 +108,19 @@ class FakeImage:
 
 
 class FakeVolume:
+    commits: list[str] = []
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
     @staticmethod
-    def from_name(name: str, *, create_if_missing: bool = False) -> tuple[str, str, bool]:
-        return ("volume", name, create_if_missing)
+    def from_name(name: str, *, create_if_missing: bool = False) -> object:
+        if create_if_missing:
+            return ("volume", name, create_if_missing)
+        return FakeVolume(name)
+
+    def commit(self) -> None:
+        self.commits.append(self.name)
 
 
 class FakeApp:
@@ -145,6 +165,7 @@ class FakeModal:
 def use_fake_modal(monkeypatch) -> None:
     FakeApp.lookups = []
     FakeApp.raise_auth_error = False
+    FakeVolume.commits = []
     FakeModalSandbox.created_kwargs = {}
     FakeModalSandbox.created_sandbox = None
     FakeModalSandbox.attached_sandbox = None
@@ -167,8 +188,11 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
     ModalSandboxProvider.create(
         SandboxConfig(
             image="python:3.13-slim",
-            workspace_volume="workspace-volume",
-            extra_volumes={"/cache": "cache-volume"},
+            volumes=(
+                SandboxVolume.workspace("workspace-volume"),
+                SandboxVolume(volume="cache-volume", mount_path="/cache"),
+                SandboxVolume(volume="data-volume", mount_path="/data", create_if_missing=False),
+            ),
             env={"A": "B"},
             workdir="/workspace",
             cpu=2.0,
@@ -176,14 +200,22 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
             gpu="T4",
             region="us-east-1",
             block_network=True,
+            encrypted_ports=(3000,),
+            unencrypted_ports=(9229,),
         )
     )
 
     kwargs = FakeModalSandbox.created_kwargs
+    volumes = cast(dict[str, object], kwargs["volumes"])
     assert kwargs["image"] == ("image", "python:3.13-slim")
-    assert kwargs["volumes"] == {
+    assert volumes["/workspace"] == ("volume", "workspace-volume", True)
+    assert volumes["/cache"] == ("volume", "cache-volume", True)
+    assert isinstance(volumes["/data"], FakeVolume)
+    assert volumes["/data"].name == "data-volume"
+    assert volumes == {
         "/workspace": ("volume", "workspace-volume", True),
         "/cache": ("volume", "cache-volume", True),
+        "/data": volumes["/data"],
     }
     assert kwargs["env"] == {"A": "B"}
     assert kwargs["workdir"] == "/workspace"
@@ -192,6 +224,8 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
     assert kwargs["gpu"] == "T4"
     assert kwargs["region"] == "us-east-1"
     assert kwargs["block_network"] is True
+    assert kwargs["encrypted_ports"] == [3000]
+    assert kwargs["unencrypted_ports"] == [9229]
 
 
 def test_create_passes_modal_image_objects_through(monkeypatch) -> None:
@@ -274,6 +308,34 @@ def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:
     assert provider._sandbox.exec_calls[-1] == (("sh", "-lc", "cd /workspace && echo ok"), {"timeout": 17})
 
 
+def test_run_command_uses_argv_without_shell_wrapping(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
+
+    result = provider.run_command("python", ["-c", "print(123)"], cwd="/work", env={"A": "B"}, timeout=9)
+
+    assert result.stdout == "ok\n"
+    assert result.command == "python -c 'print(123)'"
+    assert provider._sandbox.exec_calls[-1] == (
+        ("python", "-c", "print(123)"),
+        {"timeout": 9, "workdir": "/work", "env": {"A": "B"}},
+    )
+
+
+def test_run_command_detached_returns_process_handle(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
+
+    command = provider.run_command_detached("npm", ["run", "dev"], cwd="/work", env={"A": "B"}, pty=True)
+
+    assert command.wait() == 0
+    assert list(command.logs()) == ["ok\n"]
+    assert provider._sandbox.exec_calls[-1] == (
+        ("npm", "run", "dev"),
+        {"timeout": 17, "workdir": "/work", "env": {"A": "B"}, "pty": True},
+    )
+
+
 def test_run_can_truncate_stdout_and_stderr(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig(max_output_bytes=4))
@@ -310,6 +372,55 @@ def test_run_does_not_truncate_under_output_limit(monkeypatch) -> None:
 
     assert result.stdout == "abc"
     assert result.stdout_truncated is False
+
+
+def test_domain_returns_tunnel_url(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    assert provider.domain(3000) == "https://sandbox.example"
+
+
+def test_domain_raises_for_missing_tunnel(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    with pytest.raises(ValueError, match="No tunnel"):
+        provider.domain(8080)
+
+
+def test_create_snapshot_returns_workspace_volume_metadata(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(volumes=(SandboxVolume.workspace("snapshot-volume"),)))
+
+    snapshot = provider.create_snapshot()
+
+    assert snapshot.name == "snapshot-volume"
+    assert snapshot.kind == "modal_volume"
+    assert snapshot.workspace == "/workspace"
+    assert FakeVolume.commits == []
+
+
+def test_create_snapshot_uses_first_class_workspace_volume(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(
+        SandboxConfig(volumes=(SandboxVolume.workspace("snapshot-volume"),))
+    )
+
+    snapshot = provider.create_snapshot()
+
+    assert snapshot.name == "snapshot-volume"
+    assert snapshot.kind == "modal_volume"
+    assert snapshot.workspace == "/workspace"
+    assert FakeVolume.commits == []
+
+
+def test_create_snapshot_requires_string_workspace_volume(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    with pytest.raises(ValueError, match="workspace volume"):
+        provider.create_snapshot()
 
 
 def test_run_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:

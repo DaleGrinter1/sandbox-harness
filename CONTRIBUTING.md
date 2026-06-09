@@ -34,4 +34,6 @@ MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
 3. Run the default validation suite.
 4. Run live Modal tests if the change touches provider behavior.
 5. Build with `uv build`.
-6. Tag the release after the package artifact has been checked.
+6. Install the wheel in a clean environment and verify `sandbox schema`.
+7. Confirm `sandbox/py.typed`, focused modules, and public imports are present.
+8. Tag the release after the package artifact has been checked.

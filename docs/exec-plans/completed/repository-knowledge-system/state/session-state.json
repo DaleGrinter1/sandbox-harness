@@ -1,0 +1,14 @@
+{
+  "initiative": "repository-knowledge-system",
+  "schema_version": 1,
+  "active_feature": "execplan-validation",
+  "blockers": [],
+  "next_action": "Move this initiative to completed when the migration is accepted.",
+  "handoff_rules": [
+    "Read PLAN_repository-knowledge-system.md before editing state.",
+    "Update active_feature before starting new work.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence is recorded."
+  ],
+  "last_updated": "2026-06-09T00:10:00Z"
+}

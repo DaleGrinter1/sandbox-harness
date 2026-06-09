@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
+from .commands import CommandResult, SandboxCommand
+from .errors import SandboxConfigurationError
+from .files import SandboxFile
 from .provider_modal import ModalSandboxProvider, SandboxProvider
-from .types import DEFAULT_MAX_OUTPUT_BYTES, CommandResult, ImageSpec, SandboxConfig, VolumeSpec
+from .types import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    ImageSpec,
+    RuntimeSpec,
+    SandboxConfig,
+    SandboxSnapshot,
+)
+from .volumes import SandboxVolume
+
+RUNTIME_IMAGES = {
+    "python3.13": "python:3.13-slim",
+    "node24": "node:24-slim",
+    "node22": "node:22-slim",
+}
 
 
 class Sandbox:
@@ -31,19 +47,20 @@ class Sandbox:
         app_name: str = "modal-sandbox-sdk",
         workspace: str = "/workspace",
         image: ImageSpec = None,
-        workspace_volume: VolumeSpec | None = None,
-        extra_volumes: Mapping[str, VolumeSpec] | None = None,
+        runtime: RuntimeSpec = None,
+        volumes: Sequence[SandboxVolume] | None = None,
         env: Mapping[str, str | None] | None = None,
         workdir: str | None = None,
         command_timeout: int = 30,
         sandbox_timeout: int = 300,
-        timeout: int | None = None,
         cpu: float | tuple[float, float] | None = None,
         memory: int | tuple[int, int] | None = None,
         gpu: str | None = None,
         region: str | list[str] | None = None,
         block_network: bool = False,
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
+        encrypted_ports: Sequence[int] | None = None,
+        unencrypted_ports: Sequence[int] | None = None,
         sandbox_id: str | None = None,
     ) -> Sandbox:
         """Create or attach to a Modal Sandbox.
@@ -53,16 +70,14 @@ class Sandbox:
             workspace: Default directory for relative file operations and
                 commands.
             image: Registry image tag or prebuilt `modal.Image` object.
-            workspace_volume: Optional Modal volume name or object mounted at
-                `workspace`.
-            extra_volumes: Optional mapping of mount paths to Modal volume names
-                or objects.
+            runtime: Vercel-style runtime alias. Supported values are
+                `python3.13`, `node24`, and `node22`.
+            volumes: First-class volume mounts. Pass `SandboxVolume` objects.
             env: Environment variables passed to the Modal sandbox.
             workdir: Default working directory for commands when `cwd` is not
                 provided.
             command_timeout: Default timeout in seconds for `run`.
             sandbox_timeout: Modal sandbox lifetime timeout in seconds.
-            timeout: Backward-compatible alias for `command_timeout`.
             cpu: CPU request passed through to Modal.
             memory: Memory request passed through to Modal.
             gpu: GPU request passed through to Modal.
@@ -70,23 +85,26 @@ class Sandbox:
             block_network: Whether to block outbound network access.
             max_output_bytes: Maximum captured bytes per output stream. Use
                 `None` for no SDK truncation.
+            encrypted_ports: Ports to expose as HTTPS Modal tunnels.
+            unencrypted_ports: Ports to expose as TCP Modal tunnels.
             sandbox_id: Existing Modal sandbox ID to attach to instead of
                 creating a new sandbox.
 
         Returns:
             A `Sandbox` connected to the created or attached Modal sandbox.
         """
-        if timeout is not None:
-            command_timeout = timeout
+        resolved_image = _resolve_runtime_image(runtime, image)
+        normalized_volumes = _normalize_volumes(volumes)
+        _validate_volume_mounts(normalized_volumes)
 
         config = SandboxConfig(
             app_name=app_name,
             workspace=workspace,
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
-            image=image,
-            workspace_volume=workspace_volume,
-            extra_volumes=extra_volumes,
+            image=resolved_image,
+            runtime=runtime,
+            volumes=normalized_volumes,
             env=env,
             workdir=workdir,
             cpu=cpu,
@@ -95,6 +113,8 @@ class Sandbox:
             region=region,
             block_network=block_network,
             max_output_bytes=max_output_bytes,
+            encrypted_ports=tuple(encrypted_ports or ()),
+            unencrypted_ports=tuple(unencrypted_ports or ()),
         )
 
         # Attach and create share the same public config, but Modal only needs
@@ -145,6 +165,60 @@ class Sandbox:
         return cls(ModalSandboxProvider.from_id(sandbox_id, config, ensure_workspace=ensure_workspace))
 
     @classmethod
+    def from_snapshot(
+        cls,
+        name: str,
+        *,
+        app_name: str = "modal-sandbox-sdk",
+        workspace: str = "/workspace",
+        image: ImageSpec = None,
+        runtime: RuntimeSpec = None,
+        env: Mapping[str, str | None] | None = None,
+        workdir: str | None = None,
+        command_timeout: int = 30,
+        sandbox_timeout: int = 300,
+        cpu: float | tuple[float, float] | None = None,
+        memory: int | tuple[int, int] | None = None,
+        gpu: str | None = None,
+        region: str | list[str] | None = None,
+        block_network: bool = False,
+        max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
+        encrypted_ports: Sequence[int] | None = None,
+        unencrypted_ports: Sequence[int] | None = None,
+    ) -> Sandbox:
+        """Create a sandbox with a volume-backed workspace snapshot.
+
+        Args:
+            name: Modal volume name to mount as the workspace snapshot.
+            app_name: Modal app name used for sandbox creation.
+            workspace: Workspace mount path.
+            image: Registry image tag or prebuilt `modal.Image` object.
+            runtime: Vercel-style runtime alias.
+
+        Returns:
+            A sandbox using `name` as its workspace volume.
+        """
+        return cls.create(
+            app_name=app_name,
+            workspace=workspace,
+            image=image,
+            runtime=runtime,
+            volumes=[SandboxVolume.workspace(name, workspace=workspace)],
+            env=env,
+            workdir=workdir,
+            command_timeout=command_timeout,
+            sandbox_timeout=sandbox_timeout,
+            cpu=cpu,
+            memory=memory,
+            gpu=gpu,
+            region=region,
+            block_network=block_network,
+            max_output_bytes=max_output_bytes,
+            encrypted_ports=encrypted_ports,
+            unencrypted_ports=unencrypted_ports,
+        )
+
+    @classmethod
     def from_provider(cls, provider: SandboxProvider) -> Sandbox:
         """Build a `Sandbox` from a provider implementation.
 
@@ -186,6 +260,42 @@ class Sandbox:
             Command output, exit status, duration, and timeout metadata.
         """
         return self._provider.run(command, timeout=timeout, cwd=cwd, max_output_bytes=max_output_bytes)
+
+    def run_command(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
+        """Run an argv-style command inside the sandbox.
+
+        Unlike `run`, this method does not shell-wrap the command string.
+        """
+        return self._provider.run_command(
+            cmd,
+            args,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+            max_output_bytes=max_output_bytes,
+        )
+
+    def run_command_detached(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        pty: bool = False,
+    ) -> SandboxCommand:
+        """Start an argv-style command and return a detached command handle."""
+        return self._provider.run_command_detached(cmd, args, cwd=cwd, env=env, timeout=timeout, pty=pty)
 
     def write_text(self, path: str, content: str) -> None:
         """Write UTF-8 text inside the sandbox workspace.
@@ -274,25 +384,14 @@ class Sandbox:
         """
         self._provider.copy_to_local(remote_path, local_path)
 
-    def write_file(self, path: str, content: str) -> None:
-        """Write text to a sandbox file.
-
-        Args:
-            path: Relative workspace path, or absolute sandbox path.
-            content: Text content to write.
-        """
-        self.write_text(path, content)
-
-    def read_file(self, path: str) -> str:
-        """Read text from a sandbox file.
-
-        Args:
-            path: Relative workspace path, or absolute sandbox path.
-
-        Returns:
-            File contents as text.
-        """
-        return self.read_text(path)
+    def write_files(self, files: Sequence[SandboxFile | Mapping[str, object]]) -> None:
+        """Write multiple text or binary files into the sandbox workspace."""
+        for file in files:
+            sandbox_file = _coerce_sandbox_file(file)
+            if isinstance(sandbox_file.content, bytes):
+                self.write_bytes(sandbox_file.path, sandbox_file.content)
+            else:
+                self.write_text(sandbox_file.path, sandbox_file.content)
 
     def close(self) -> None:
         """Terminate or detach from the underlying sandbox."""
@@ -306,8 +405,65 @@ class Sandbox:
         """Terminate the underlying sandbox."""
         self._provider.terminate(wait=wait)
 
+    def domain(self, port: int) -> str:
+        """Return the public HTTPS URL for a declared sandbox port."""
+        return self._provider.domain(port)
+
+    def create_snapshot(self) -> SandboxSnapshot:
+        """Create a volume-backed workspace snapshot checkpoint."""
+        return self._provider.create_snapshot()
+
     def __enter__(self) -> Sandbox:
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         self.close()
+
+
+def _resolve_runtime_image(runtime: RuntimeSpec, image: ImageSpec) -> ImageSpec:
+    if runtime is None:
+        return image
+    if image is not None:
+        raise SandboxConfigurationError("Pass either runtime or image, not both.")
+    try:
+        return RUNTIME_IMAGES[runtime]
+    except KeyError as exc:
+        supported = ", ".join(sorted(RUNTIME_IMAGES))
+        raise SandboxConfigurationError(f"Unsupported runtime {runtime!r}. Supported runtimes: {supported}.") from exc
+
+
+def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFile:
+    if isinstance(file, SandboxFile):
+        return file
+    path = file.get("path")
+    content = file.get("content")
+    if not isinstance(path, str):
+        raise TypeError("Sandbox file mappings must include a string 'path'.")
+    if not isinstance(content, (str, bytes)):
+        raise TypeError("Sandbox file mappings must include string or bytes 'content'.")
+    return SandboxFile(path=path, content=content)
+
+
+def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[SandboxVolume, ...]:
+    if volumes is None:
+        return ()
+    normalized = tuple(volumes)
+    for volume in normalized:
+        if not isinstance(volume, SandboxVolume):
+            raise TypeError("volumes must contain SandboxVolume instances.")
+    return normalized
+
+
+def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:
+    seen: set[str] = set()
+
+    def add_mount(mount_path: str) -> None:
+        normalized = mount_path.rstrip("/") or "/"
+        if normalized in seen:
+            raise SandboxConfigurationError(f"Duplicate sandbox volume mount path: {normalized}")
+        seen.add(normalized)
+
+    for volume in volumes:
+        if not volume.mount_path.startswith("/"):
+            raise SandboxConfigurationError("Sandbox volume mount_path must be an absolute sandbox path.")
+        add_mount(volume.mount_path)

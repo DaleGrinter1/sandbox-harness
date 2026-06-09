@@ -14,10 +14,10 @@ Run safe discovery before live work:
 ```bash
 uv run sandbox schema
 uv run sandbox doctor
-uv run sandbox recipes
+uv run sandbox quickstart
 ```
 
-Use `creates_modal_resources` in command or recipe output to decide whether user approval is needed.
+Use `creates_modal_resources` in command output to decide whether user approval is needed.
 
 ## One-Shot Commands
 

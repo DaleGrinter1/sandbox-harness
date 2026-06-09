@@ -3,11 +3,18 @@ from __future__ import annotations
 import os
 import shlex
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, Protocol, TypeVar
 
-from .types import CommandResult, ImageSpec, ModalAuthenticationError, SandboxConfig, SandboxProviderError, VolumeSpec
+from .commands import CommandResult, SandboxCommand
+from .errors import ModalAuthenticationError, SandboxConfigurationError, SandboxProviderError
+from .types import (
+    ImageSpec,
+    SandboxConfig,
+    SandboxSnapshot,
+)
+from .volumes import SandboxVolume, VolumeSpec
 
 T = TypeVar("T")
 
@@ -45,6 +52,28 @@ class SandboxProvider(Protocol):
         max_output_bytes: int | None = None,
     ) -> CommandResult: ...
 
+    def run_command(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult: ...
+
+    def run_command_detached(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        pty: bool = False,
+    ) -> SandboxCommand: ...
+
     def write_text(self, path: str, content: str) -> None: ...
 
     def write_bytes(self, path: str, content: bytes) -> None: ...
@@ -66,6 +95,10 @@ class SandboxProvider(Protocol):
     def detach(self) -> None: ...
 
     def terminate(self, *, wait: bool = True) -> None: ...
+
+    def domain(self, port: int) -> str: ...
+
+    def create_snapshot(self) -> SandboxSnapshot: ...
 
     def close(self) -> None: ...
 
@@ -121,6 +154,11 @@ def _truncate_text(value: str, max_bytes: int | None) -> tuple[str, bool]:
     if len(encoded) <= max_bytes:
         return value, False
     return encoded[:max_bytes].decode("utf-8", errors="ignore"), True
+
+
+def _argv_command(cmd: str, args: Sequence[str] | None = None) -> tuple[str, tuple[str, ...]]:
+    command_args = tuple(str(arg) for arg in (args or ()))
+    return shlex.join([cmd, *command_args]), command_args
 
 
 def sandbox_path(path: str, workspace: str) -> str:
@@ -191,15 +229,7 @@ class ModalSandboxProvider:
             if image is not None:
                 create_kwargs["image"] = image
 
-            # Volumes are deliberately opt-in. The workspace volume is a
-            # convenience for the common case, while extra_volumes mirrors
-            # Modal's mount map.
-            volumes = _resolve_volumes(
-                modal,
-                workspace=config.workspace,
-                workspace_volume=config.workspace_volume,
-                extra_volumes=config.extra_volumes,
-            )
+            volumes = _resolve_volumes(modal, volumes=config.volumes)
             if volumes:
                 create_kwargs["volumes"] = volumes
 
@@ -210,6 +240,8 @@ class ModalSandboxProvider:
                 "memory": config.memory,
                 "gpu": config.gpu,
                 "region": config.region,
+                "encrypted_ports": list(config.encrypted_ports) if config.encrypted_ports else None,
+                "unencrypted_ports": list(config.unencrypted_ports) if config.unencrypted_ports else None,
             }
             create_kwargs.update({key: value for key, value in optional_kwargs.items() if value is not None})
 
@@ -340,6 +372,89 @@ class ModalSandboxProvider:
             max_output_bytes=effective_max_output_bytes,
         )
 
+    def run_command(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        max_output_bytes: int | None = None,
+    ) -> CommandResult:
+        """Run an argv-style command without shell wrapping."""
+        command, command_args = _argv_command(cmd, args)
+        effective_timeout = timeout if timeout is not None else self.config.command_timeout
+        effective_cwd = cwd or self.config.workdir or self.config.workspace
+        effective_max_output_bytes = max_output_bytes if max_output_bytes is not None else self.config.max_output_bytes
+
+        start = time.monotonic()
+        stdout = ""
+        stderr = ""
+        exit_code: int | None = None
+        timed_out = False
+        try:
+            process = self._sandbox.exec(
+                cmd,
+                *command_args,
+                timeout=effective_timeout,
+                workdir=effective_cwd,
+                env=dict(env) if env is not None else None,
+            )
+            stdout = _decode_stream(process.stdout.read())
+            stderr = _decode_stream(process.stderr.read())
+            process.wait()
+            exit_code = getattr(process, "returncode", None)
+        except TimeoutError as exc:
+            timed_out = True
+            stderr = str(exc)
+        except Exception as exc:
+            _translate_modal_auth_error(exc)
+            _raise_provider_error(exc)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        stdout, stdout_truncated = _truncate_text(stdout, effective_max_output_bytes)
+        stderr, stderr_truncated = _truncate_text(stderr, effective_max_output_bytes)
+
+        return CommandResult(
+            command=command,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            timed_out=timed_out,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
+            max_output_bytes=effective_max_output_bytes,
+        )
+
+    def run_command_detached(
+        self,
+        cmd: str,
+        args: Sequence[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: Mapping[str, str | None] | None = None,
+        timeout: int | None = None,
+        pty: bool = False,
+    ) -> SandboxCommand:
+        """Start an argv-style command and return a process handle."""
+        command_args = tuple(str(arg) for arg in (args or ()))
+        effective_timeout = timeout if timeout is not None else self.config.command_timeout
+        effective_cwd = cwd or self.config.workdir or self.config.workspace
+        try:
+            process = self._sandbox.exec(
+                cmd,
+                *command_args,
+                timeout=effective_timeout,
+                workdir=effective_cwd,
+                env=dict(env) if env is not None else None,
+                pty=pty,
+            )
+        except Exception as exc:
+            _translate_modal_auth_error(exc)
+            _raise_provider_error(exc)
+        return SandboxCommand(process)
+
     def write_text(self, path: str, content: str) -> None:
         """Write UTF-8 text through Modal's filesystem API."""
         remote_path = sandbox_path(path, self.config.workspace)
@@ -408,6 +523,33 @@ class ModalSandboxProvider:
             _translate_modal_auth_error(exc)
             _raise_provider_error(exc)
 
+    def domain(self, port: int) -> str:
+        """Return the public HTTPS URL for a declared sandbox port."""
+        try:
+            tunnels = self._sandbox.tunnels()
+            tunnel = tunnels.get(port)
+            if tunnel is None:
+                raise ValueError(f"No tunnel is available for port {port}.")
+            return str(tunnel.url)
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise
+            _translate_modal_auth_error(exc)
+            _raise_provider_error(exc)
+
+    def create_snapshot(self) -> SandboxSnapshot:
+        """Return a volume-backed workspace snapshot checkpoint.
+
+        Modal Sandbox volume writes are backed by the mounted workspace volume.
+        A fresh `modal.Volume.from_name(...).commit()` is not valid here because
+        Modal only allows `commit()` on a mounted volume inside a container.
+        """
+        workspace_volume = _workspace_volume_name(self.config)
+        if workspace_volume is None:
+            raise SandboxConfigurationError("create_snapshot requires a string workspace volume.")
+
+        return SandboxSnapshot(name=workspace_volume, kind="modal_volume", workspace=self.config.workspace)
+
     def close(self) -> None:
         """Terminate or detach from the Modal sandbox."""
         if self._owns_sandbox:
@@ -428,22 +570,30 @@ def _resolve_image(modal: Any, image: ImageSpec) -> object | None:
 def _resolve_volumes(
     modal: Any,
     *,
-    workspace: str,
-    workspace_volume: VolumeSpec | None,
-    extra_volumes: Mapping[str, VolumeSpec] | None,
+    volumes: Sequence[SandboxVolume],
 ) -> dict[str, object]:
     """Build Modal's mount-path-to-volume mapping."""
-    volumes: dict[str, object] = {}
-    if workspace_volume is not None:
-        volumes[workspace] = _resolve_volume(modal, workspace_volume)
+    resolved: dict[str, object] = {}
+    for volume in volumes:
+        resolved[volume.mount_path] = _resolve_volume(
+            modal,
+            volume.volume,
+            create_if_missing=volume.create_if_missing,
+        )
+    return resolved
 
-    for mount_path, volume in (extra_volumes or {}).items():
-        volumes[str(mount_path)] = _resolve_volume(modal, volume)
-    return volumes
+
+def _workspace_volume_name(config: SandboxConfig) -> str | None:
+    workspace = config.workspace.rstrip("/") or "/"
+    for volume in config.volumes:
+        mount_path = volume.mount_path.rstrip("/") or "/"
+        if mount_path == workspace and isinstance(volume.volume, str):
+            return volume.volume
+    return None
 
 
-def _resolve_volume(modal: Any, volume: VolumeSpec) -> object:
+def _resolve_volume(modal: Any, volume: VolumeSpec, *, create_if_missing: bool = True) -> object:
     """Resolve public volume input into a Modal volume object."""
     if isinstance(volume, str):
-        return modal.Volume.from_name(volume, create_if_missing=True)
+        return modal.Volume.from_name(volume, create_if_missing=create_if_missing)
     return volume
