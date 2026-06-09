@@ -65,7 +65,7 @@ def test_license_file_is_present() -> None:
     license_text = Path("LICENSE").read_text(encoding="utf-8")
 
     assert license_text.startswith("MIT License")
-    assert "DaleGrinter1" in license_text
+    assert "Copyright (c) 2026 Dale" in license_text
 
 
 def test_image_presets_are_registry_tags() -> None:
