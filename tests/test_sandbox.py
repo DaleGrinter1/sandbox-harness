@@ -368,6 +368,7 @@ def test_file_helpers_delegate_to_provider() -> None:
     assert provider.copy_from_local_calls == [("local.txt", "remote.txt")]
     assert provider.copy_to_local_calls == [("remote.txt", "local.txt")]
 
+
 def test_write_files_accepts_dataclasses_and_mappings() -> None:
     provider = FakeProvider()
     sandbox = Sandbox.from_provider(provider)

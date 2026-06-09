@@ -657,7 +657,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
     parser.add_argument("--workspace", default="/workspace")
     parser.add_argument("--image", help="Registry image tag or alias such as py313, py312, py311, or ubuntu24.")
-    parser.add_argument("--runtime", choices=["python3.13", "node24", "node22"], help="Runtime alias such as python3.13.")
+    parser.add_argument(
+        "--runtime", choices=["python3.13", "node24", "node22"], help="Runtime alias such as python3.13."
+    )
     parser.add_argument("--workspace-volume")
     parser.add_argument("--volume", type=_parse_volume, action="append", default=[], metavar="NAME:/MOUNT")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")

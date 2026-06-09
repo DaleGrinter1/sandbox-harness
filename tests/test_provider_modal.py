@@ -403,9 +403,7 @@ def test_create_snapshot_returns_workspace_volume_metadata(monkeypatch) -> None:
 
 def test_create_snapshot_uses_first_class_workspace_volume(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
-    provider = ModalSandboxProvider.create(
-        SandboxConfig(volumes=(SandboxVolume.workspace("snapshot-volume"),))
-    )
+    provider = ModalSandboxProvider.create(SandboxConfig(volumes=(SandboxVolume.workspace("snapshot-volume"),)))
 
     snapshot = provider.create_snapshot()
 
