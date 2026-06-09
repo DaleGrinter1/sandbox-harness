@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "modal-sandbox-cli-workflows": {
+      "source": "/Users/dalegrinter/sandbox-harness/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "modal-sandbox-package-maintenance": {
+      "source": "/Users/dalegrinter/sandbox-harness/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "modal-sandbox-repo-understanding": {
+      "source": "/Users/dalegrinter/sandbox-harness/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

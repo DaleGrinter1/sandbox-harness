@@ -7,12 +7,12 @@ Make the repository itself the canonical source for agent execution context, arc
 ## Surprises & Discoveries
 
 - The requested reference file `/Users/ibrahimsaidi/Desktop/Builds/cloudflare_builds/orange/docs/PLANS.md` was not present on this machine, so this repo-local guide was adapted from the public source material and current repo needs.
-- The repo already had uncommitted delete-plus-add movement from `skills/` to `.codex/skills/` before this migration.
+- The repo later pivoted repo-local skills to the Vercel-compatible `.agents/skills/` project path.
 
 ## Decision Log
 
 - 2026-06-09: Use `docs/exec-plans/active/<initiative>/state/*.json*` for machine state and disallow markdown task files by default.
-- 2026-06-09: Keep `.codex/skills` as repo-local development helpers; it is not the deprecated dot-agent planning directory.
+- 2026-06-09: Keep `.agents/skills` as repo-local development helpers; it is not the deprecated dot-agent planning directory.
 - 2026-06-09: Rehome user-facing workflow docs under `docs/references/` and compatibility design notes under `docs/design-docs/`.
 
 ## Outcomes & Retrospective

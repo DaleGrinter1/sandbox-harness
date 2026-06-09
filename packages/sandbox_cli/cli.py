@@ -59,6 +59,54 @@ RECOMMENDED_FIRST_COMMANDS = [
     },
 ]
 
+GOLDEN_WORKFLOWS = [
+    {
+        "id": "safe_first_run",
+        "purpose": "Inspect local readiness before creating Modal resources.",
+        "creates_modal_resources": False,
+        "commands": [
+            "sandbox schema",
+            "sandbox doctor",
+            "sandbox quickstart",
+        ],
+        "success_signal": "quickstart reports ready_to_run or gives setup next steps.",
+    },
+    {
+        "id": "short_lived_command",
+        "purpose": "Create one short-lived sandbox and verify command execution.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox --image py313 quickstart --run",
+            "sandbox --image py313 run \"python -c 'print(123)'\"",
+        ],
+        "success_signal": "command JSON has exit_code 0 and expected stdout.",
+    },
+    {
+        "id": "persistent_workspace_files",
+        "purpose": "Preserve files across separate CLI calls using a Modal workspace volume.",
+        "creates_modal_resources": True,
+        "commands": [
+            'sandbox --image py313 --workspace-volume work write app.py --content "print(123)"',
+            'sandbox --image py313 --workspace-volume work run "python app.py"',
+            "sandbox --image py313 --workspace-volume work read app.py",
+            "sandbox --image py313 --workspace-volume work snapshot",
+        ],
+        "success_signal": "read returns the file content and snapshot names the workspace volume.",
+    },
+    {
+        "id": "long_lived_reuse",
+        "purpose": "Reuse one live sandbox for iterative work, then terminate it.",
+        "creates_modal_resources": True,
+        "commands": [
+            "sandbox --image py313 start",
+            'sandbox --sandbox-id <sandbox_id> write app.py --content "print(123)"',
+            'sandbox --sandbox-id <sandbox_id> run "python app.py"',
+            "sandbox stop <sandbox_id>",
+        ],
+        "success_signal": "start returns sandbox_id and stop returns status terminated.",
+    },
+]
+
 COMMAND_RESULT_SCHEMA = {
     "command": "string",
     "stdout": "string",
@@ -551,6 +599,7 @@ def _schema_payload() -> dict[str, object]:
         },
         "image_aliases": IMAGE_ALIASES,
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
+        "golden_workflows": GOLDEN_WORKFLOWS,
         "commands": COMMANDS_SCHEMA,
     }
 

@@ -18,25 +18,26 @@ server definitions here when they are useful for this repository.
 
 ## Skills
 
-Optional Codex-style skills live in `.codex/skills/`. They are source
-instructions for agent workflows, not package runtime files.
+Project skills live in `.agents/skills/`, matching the Vercel Labs `skills`
+CLI project path for Codex. `.codex/` is reserved for Codex configuration and
+MCP notes.
 
-- `modal-sandbox-first-run`: verify Modal setup and first execution.
-- `modal-sandbox-cli-workflows`: operate the JSON CLI safely.
-- `modal-sandbox-file-workflows`: work with sandbox files and volumes.
-- `modal-sandbox-python-sdk`: write Python SDK examples.
-- `modal-sandbox-cli-contract`: change CLI behavior and tests together.
-- `modal-sandbox-provider-adapter`: update Modal provider behavior.
-- `modal-sandbox-docs-maintenance`: keep docs and examples aligned.
-- `modal-sandbox-live-tests`: run opt-in Modal integration tests.
+Current repo skills:
 
-Example prompts:
+- `modal-sandbox-repo-understanding`: read order, product shape, architecture,
+  golden workflows, and exec-plan state.
+- `modal-sandbox-cli-workflows`: safe discovery, live CLI workflow choices,
+  persistence, reuse, and live-test guardrails.
+- `modal-sandbox-package-maintenance`: SDK/provider/CLI/docs change map and
+  validation matrix.
 
-```text
-Use .codex/skills/modal-sandbox-first-run/SKILL.md to help me verify my Modal setup.
-Use .codex/skills/modal-sandbox-cli-workflows/SKILL.md to run this command safely.
-Use .codex/skills/modal-sandbox-file-workflows/SKILL.md to persist files across CLI calls.
+Useful `skills` CLI commands:
+
+```bash
+npx skills list --agent codex
+npx skills add vercel-labs/agent-skills --list
+npx skills find modal
 ```
 
-These skills are portable Markdown instructions. They do not install
+The repo skills are portable Markdown instructions. They do not install
 dependencies, start servers, or create Modal resources by themselves.

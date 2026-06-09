@@ -63,6 +63,46 @@ Then run any command:
 uv run sandbox --image py313 run "python -c 'print(123)'"
 ```
 
+## Golden Paths
+
+These are the workflows this repo optimizes for and regression-tests.
+
+Safe discovery, no Modal resources:
+
+```bash
+uv run sandbox schema
+uv run sandbox doctor
+uv run sandbox quickstart
+```
+
+Short-lived execution:
+
+```bash
+uv run sandbox --image py313 quickstart --run
+uv run sandbox --image py313 run "python -c 'print(123)'"
+```
+
+Persistent files across separate sandbox lifetimes:
+
+```bash
+uv run sandbox --image py313 --workspace-volume work write app.py --content "print(123)"
+uv run sandbox --image py313 --workspace-volume work run "python app.py"
+uv run sandbox --image py313 --workspace-volume work read app.py
+uv run sandbox --image py313 --workspace-volume work snapshot
+```
+
+Reusable long-lived sandbox:
+
+```bash
+uv run sandbox --image py313 start
+uv run sandbox --sandbox-id sb-abc123 write app.py --content "print(123)"
+uv run sandbox --sandbox-id sb-abc123 run "python app.py"
+uv run sandbox stop sb-abc123
+```
+
+Agents can also read these workflows from `uv run sandbox schema` under
+`golden_workflows`.
+
 ## Python SDK
 
 The public package is `sandbox`.

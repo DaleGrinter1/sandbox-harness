@@ -11,8 +11,8 @@ Score each area from 1 to 5. Any score below 4 should have an action item.
 | Area | Score | Evidence | Action Items |
 | --- | ---: | --- | --- |
 | SDK API clarity | 4 | Focused modules and top-level exports. | Keep import compatibility tests current. |
-| CLI contract | 4 | JSON schema and CLI tests cover core commands. | Add schema drift check to CI if needed. |
-| Modal safety | 4 | Live tests are opt-in; discovery is resource-free. | Expand live coverage only when explicitly requested. |
+| CLI contract | 4 | JSON schema, golden workflows, and CLI tests cover core commands. | Add schema drift check to CI if needed. |
+| Modal safety | 4 | Live tests are opt-in; discovery is resource-free; fake tests cover contextual provider failures. | Run live acceptance before release when credentials are available. |
 | Docs navigation | 4 | Harness-style docs scaffold exists. | Keep links updated during doc gardening. |
 | Agent handoff | 4 | Exec plans use JSON state and validator. | Append progress entries during long-running work. |
 

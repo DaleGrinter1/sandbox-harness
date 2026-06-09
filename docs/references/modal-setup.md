@@ -30,3 +30,16 @@ get a next step instead of a raw Modal traceback.
 SDK exceptions inherit from `SandboxError`. Unexpected provider failures are
 wrapped in `SandboxProviderError`; nonzero command exits remain regular
 `CommandResult` values and do not raise.
+
+## Operational Notes
+
+- `sandbox doctor` and `sandbox quickstart` are safe discovery commands and do
+  not create Modal resources.
+- `sandbox quickstart --run` creates a short-lived sandbox and should be the
+  first live acceptance check after credentials are configured.
+- Separate one-shot CLI commands do not share filesystem state unless they use
+  the same `--workspace-volume` or attach to the same `--sandbox-id`.
+- `sandbox snapshot` requires `--workspace-volume`; the snapshot response is
+  metadata for the mounted workspace volume, not a full VM image.
+- Volume names are Modal account resources. Use unique names for tests and
+  cleanup throwaway volumes after live validation.

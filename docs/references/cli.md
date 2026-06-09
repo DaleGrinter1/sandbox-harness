@@ -24,6 +24,44 @@ whether credentials appear to be configured through environment variables or
 Use `sandbox quickstart --run` to create a short-lived sandbox and run
 `python -c 'print(123)'`.
 
+## Golden Workflows
+
+`sandbox schema` includes a `golden_workflows` array so agents can discover the
+same first-run paths documented here.
+
+Safe discovery, no Modal resources:
+
+```bash
+uv run sandbox schema
+uv run sandbox doctor
+uv run sandbox quickstart
+```
+
+Short-lived execution:
+
+```bash
+uv run sandbox --image py313 quickstart --run
+uv run sandbox --image py313 run "python -c 'print(123)'"
+```
+
+Persistent workspace files:
+
+```bash
+uv run sandbox --image py313 --workspace-volume work write app.py --content "print(123)"
+uv run sandbox --image py313 --workspace-volume work run "python app.py"
+uv run sandbox --image py313 --workspace-volume work read app.py
+uv run sandbox --image py313 --workspace-volume work snapshot
+```
+
+Long-lived sandbox reuse:
+
+```bash
+uv run sandbox --image py313 start
+uv run sandbox --sandbox-id sb-abc123 write app.py --content "print(123)"
+uv run sandbox --sandbox-id sb-abc123 run "python app.py"
+uv run sandbox stop sb-abc123
+```
+
 ## Commands
 
 Run a command:
@@ -103,7 +141,9 @@ uv run sandbox --workspace-volume my-workspace snapshot
 ```
 
 The snapshot response names the mounted workspace volume that backs the
-checkpoint. It does not call Modal's local `Volume.commit()` API.
+checkpoint. It does not call Modal's local `Volume.commit()` API. Running
+`snapshot` without `--workspace-volume` returns a JSON runtime error because
+there is no persistent workspace volume to name.
 
 ## Long-Lived Sandboxes
 

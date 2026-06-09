@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import cast
 
 import pytest
 from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig, SandboxSnapshot, SandboxVolume
@@ -21,10 +22,15 @@ class FakeSandbox:
         sandbox = cls()
         sandbox_timeout = kwargs.get("sandbox_timeout", 300)
         max_output_bytes = kwargs.get("max_output_bytes")
+        volumes = kwargs.get("volumes", ())
+        if not isinstance(volumes, tuple):
+            volumes = ()
+        volumes = cast(tuple[SandboxVolume, ...], volumes)
         sandbox.config = SandboxConfig(
             workspace=str(kwargs.get("workspace", "/workspace")),
             sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
             max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
+            volumes=volumes,
         )
         cls.create_calls.append(kwargs)
         cls.instances.append(sandbox)
@@ -101,7 +107,12 @@ class FakeSandbox:
         return f"https://sandbox.example/{port}"
 
     def create_snapshot(self) -> SandboxSnapshot:
-        return SandboxSnapshot(name="workspace-volume", kind="modal_volume", workspace=self.config.workspace)
+        workspace = self.config.workspace.rstrip("/") or "/"
+        for volume in self.config.volumes:
+            mount_path = volume.mount_path.rstrip("/") or "/"
+            if mount_path == workspace and isinstance(volume.volume, str):
+                return SandboxSnapshot(name=volume.volume, kind="modal_volume", workspace=self.config.workspace)
+        raise ValueError("create_snapshot requires a string workspace volume.")
 
 
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
@@ -361,6 +372,27 @@ def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
     }
 
 
+def test_cli_snapshot_without_workspace_volume_reports_json_runtime_error(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["snapshot"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert exc.value.code == 1
+    assert captured.out == ""
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "runtime_error"
+    assert payload["error"]["message"] == "create_snapshot requires a string workspace volume."
+    assert payload["error"]["next_steps"] == [
+        "Run `sandbox doctor` to inspect local setup without creating Modal resources."
+    ]
+
+
 def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.from_id_calls = []
@@ -560,6 +592,16 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
     assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
     assert payload["recommended_first_commands"][-1]["command"] == "sandbox quickstart --run"
+    assert payload["golden_workflows"][0] == {
+        "id": "safe_first_run",
+        "purpose": "Inspect local readiness before creating Modal resources.",
+        "creates_modal_resources": False,
+        "commands": ["sandbox schema", "sandbox doctor", "sandbox quickstart"],
+        "success_signal": "quickstart reports ready_to_run or gives setup next steps.",
+    }
+    persistent_workflow = payload["golden_workflows"][2]
+    assert persistent_workflow["id"] == "persistent_workspace_files"
+    assert "sandbox --image py313 --workspace-volume work snapshot" in persistent_workflow["commands"]
     assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
     assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
     assert "run-command" in payload["lifecycle"]["live_modal_commands"]
@@ -570,6 +612,102 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["auth"]["setup_commands"][0] == "modal setup"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
+
+
+def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_package_version", lambda: "0.1.0")
+
+    assert cli.main(["schema"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    expected_commands = {
+        "start",
+        "stop",
+        "run",
+        "run-command",
+        "write",
+        "read",
+        "ls",
+        "mkdir",
+        "rm",
+        "upload",
+        "download",
+        "domain",
+        "snapshot",
+        "schema",
+        "doctor",
+        "quickstart",
+    }
+    assert set(payload["commands"]) == expected_commands
+    assert payload["schema_version"] == "1"
+    assert payload["default_output"] == "json"
+    assert payload["path_rules"] == {
+        "absolute_paths": "Used as absolute paths inside the sandbox.",
+        "relative_paths": "Resolved inside the sandbox workspace.",
+        "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
+    }
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
+    assert set(payload["lifecycle"]["live_modal_commands"]) == (
+        expected_commands - {"schema", "doctor", "quickstart"} | {"quickstart --run"}
+    )
+    assert [workflow["id"] for workflow in payload["golden_workflows"]] == [
+        "safe_first_run",
+        "short_lived_command",
+        "persistent_workspace_files",
+        "long_lived_reuse",
+    ]
+    assert payload["golden_workflows"][0]["creates_modal_resources"] is False
+    assert all(workflow["commands"] for workflow in payload["golden_workflows"])
+    assert all("success_signal" in workflow for workflow in payload["golden_workflows"])
+    for command_name, command_schema in payload["commands"].items():
+        assert isinstance(command_schema["creates_sandbox"], bool), command_name
+        assert command_schema["summary"], command_name
+        assert command_schema["example"], command_name
+        assert isinstance(command_schema["output"], dict), command_name
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+@pytest.mark.parametrize("argv", [["schema"], ["doctor"], ["quickstart"]])
+def test_safe_discovery_commands_never_create_sandboxes(monkeypatch, capsys, tmp_path, argv) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    assert cli.main(argv) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_persistent_golden_workflow_uses_workspace_volume(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    common = ["--image", "py313", "--workspace-volume", "work"]
+
+    assert cli.main([*common, "write", "app.py", "--content", "print(123)"]) == 0
+    assert cli.main([*common, "run", "python app.py"]) == 0
+    assert cli.main([*common, "read", "app.py"]) == 0
+    assert cli.main([*common, "snapshot"]) == 0
+
+    capsys.readouterr()
+    assert FakeSandbox.create_calls
+    assert all(call["volumes"] == (SandboxVolume.workspace("work"),) for call in FakeSandbox.create_calls[-4:])
+    assert FakeSandbox.instances[-1].config.volumes == (SandboxVolume.workspace("work"),)
 
 
 def test_cli_recipes_is_not_a_public_command(monkeypatch, capsys) -> None:

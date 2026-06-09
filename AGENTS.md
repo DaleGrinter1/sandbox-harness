@@ -18,6 +18,7 @@
 - Generated facts: `docs/generated/`
 - References and migrated docs: `docs/references/`
 - Quality, security, reliability: `docs/QUALITY_SCORE.md`, `docs/SECURITY.md`, `docs/RELIABILITY.md`
+- Project skills: `.agents/skills/`
 
 ## Routing By Work Type
 

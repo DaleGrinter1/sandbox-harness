@@ -110,12 +110,19 @@ def test_cli_file_workflow_persists_with_workspace_volume(capsys) -> None:
         run_payload = _run_cli_json(capsys, [*common_args, "run", "python hello.py"])
         read_payload = _run_cli_json(capsys, [*common_args, "read", "hello.py"])
         files_payload = _run_cli_json(capsys, [*common_args, "ls", "."])
+        snapshot_payload = _run_cli_json(capsys, [*common_args, "snapshot"])
 
         assert write_payload == {"path": "hello.py", "status": "wrote"}
         assert run_payload["exit_code"] == 0
         assert run_payload["stdout"].strip() == "hello from cli live test"
         assert read_payload == {"content": "print('hello from cli live test')\n", "path": "hello.py"}
         assert "hello.py" in files_payload["files"]
+        assert snapshot_payload == {
+            "kind": "modal_volume",
+            "name": volume_name,
+            "status": "created",
+            "workspace": "/workspace",
+        }
     finally:
         _delete_modal_volume(volume_name)
 
@@ -133,6 +140,8 @@ def test_cli_start_reuse_and_stop_acceptance(capsys) -> None:
                 "py313",
                 "--sandbox-timeout",
                 "120",
+                "--encrypted-port",
+                "3000",
                 "start",
             ],
         )
@@ -150,10 +159,13 @@ def test_cli_start_reuse_and_stop_acceptance(capsys) -> None:
             ],
         )
         run_payload = _run_cli_json(capsys, ["--sandbox-id", sandbox_id, "run", "python agent.py"])
+        domain_payload = _run_cli_json(capsys, ["--sandbox-id", sandbox_id, "domain", "3000"])
 
         assert write_payload == {"path": "agent.py", "status": "wrote"}
         assert run_payload["exit_code"] == 0
         assert run_payload["stdout"].strip() == "reused sandbox"
+        assert domain_payload["port"] == 3000
+        assert str(domain_payload["url"]).startswith("http")
     finally:
         if sandbox_id is not None:
             stop_payload = _run_cli_json(capsys, ["stop", sandbox_id])

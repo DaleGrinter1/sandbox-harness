@@ -77,6 +77,7 @@ class FakeSandboxObject:
         self.exec_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.raise_auth_error_on_exec = False
         self.raise_runtime_error_on_exec = False
+        self.raise_timeout_on_exec = False
         self.stdout = "ok\n"
         self.stderr = ""
         self.terminated = False
@@ -88,6 +89,8 @@ class FakeSandboxObject:
             raise FakeAuthError("token missing")
         if self.raise_runtime_error_on_exec:
             raise RuntimeError("provider failed")
+        if self.raise_timeout_on_exec:
+            raise TimeoutError("command timed out")
         self.exec_calls.append((args, kwargs))
         return FakeProcess(stdout=self.stdout, stderr=self.stderr)
 
@@ -139,15 +142,21 @@ class FakeModalSandbox:
     created_kwargs: dict[str, object] = {}
     created_sandbox: FakeSandboxObject | None = None
     attached_sandbox: FakeSandboxObject | None = None
+    raise_runtime_error_on_create = False
+    raise_runtime_error_on_attach = False
 
     @classmethod
     def create(cls, **kwargs: object) -> FakeSandboxObject:
+        if cls.raise_runtime_error_on_create:
+            raise RuntimeError("create failed")
         cls.created_kwargs = kwargs
         cls.created_sandbox = FakeSandboxObject()
         return cls.created_sandbox
 
     @staticmethod
     def from_id(sandbox_id: str) -> FakeSandboxObject:
+        if FakeModalSandbox.raise_runtime_error_on_attach:
+            raise RuntimeError("sandbox not found")
         sandbox = FakeSandboxObject()
         sandbox.object_id = sandbox_id
         FakeModalSandbox.attached_sandbox = sandbox
@@ -169,6 +178,8 @@ def use_fake_modal(monkeypatch) -> None:
     FakeModalSandbox.created_kwargs = {}
     FakeModalSandbox.created_sandbox = None
     FakeModalSandbox.attached_sandbox = None
+    FakeModalSandbox.raise_runtime_error_on_create = False
+    FakeModalSandbox.raise_runtime_error_on_attach = False
     monkeypatch.setattr(ModalSandboxProvider, "_load_modal", staticmethod(lambda: FakeModal))
 
 
@@ -249,6 +260,22 @@ def test_create_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:
     assert "python -m modal setup" in message
     assert "MODAL_TOKEN_ID" in message
     assert "token missing" in message
+
+
+def test_create_wraps_provider_errors_with_operation_context(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    FakeModalSandbox.raise_runtime_error_on_create = True
+
+    with pytest.raises(SandboxProviderError, match="creating Modal sandbox: create failed"):
+        ModalSandboxProvider.create(SandboxConfig())
+
+
+def test_from_id_wraps_provider_errors_with_sandbox_context(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    FakeModalSandbox.raise_runtime_error_on_attach = True
+
+    with pytest.raises(SandboxProviderError, match="attaching to Modal sandbox sb-missing: sandbox not found"):
+        ModalSandboxProvider.from_id("sb-missing", SandboxConfig())
 
 
 def test_created_provider_terminates_owned_sandbox_on_close(monkeypatch) -> None:
@@ -374,6 +401,19 @@ def test_run_does_not_truncate_under_output_limit(monkeypatch) -> None:
     assert result.stdout_truncated is False
 
 
+def test_run_timeout_returns_command_result_without_raising(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=3))
+    provider._sandbox.raise_timeout_on_exec = True
+
+    result = provider.run("sleep 10")
+
+    assert result.command == "sleep 10"
+    assert result.exit_code is None
+    assert result.timed_out is True
+    assert result.stderr == "command timed out"
+
+
 def test_domain_returns_tunnel_url(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig())
@@ -440,8 +480,21 @@ def test_run_wraps_unexpected_provider_errors(monkeypatch) -> None:
     sandbox.raise_runtime_error_on_exec = True
     provider = ModalSandboxProvider(sandbox, SandboxConfig())
 
-    with pytest.raises(SandboxProviderError, match="provider failed"):
+    with pytest.raises(SandboxProviderError, match="running shell command: provider failed"):
         provider.run("echo ok")
+
+
+def test_filesystem_errors_include_sandbox_path_context(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    def fail_read_text(remote_path: str) -> str:
+        raise RuntimeError(f"missing file {remote_path}")
+
+    provider._sandbox.filesystem.read_text = fail_read_text
+
+    with pytest.raises(SandboxProviderError, match="reading text from /workspace/missing.txt: missing file"):
+        provider.read_text("missing.txt")
 
 
 def test_filesystem_helpers_use_workspace_paths(monkeypatch) -> None:

@@ -18,9 +18,29 @@ uv run sandbox --image py313 quickstart --run
 
 After that, use `sandbox run` for one-off commands or `sandbox start` plus `--sandbox-id` for a longer workflow.
 
-Optional repo-local Codex-style skills live in `.codex/skills`. They are source artifacts for agents and are not required at package runtime. For a new user, start with `.codex/skills/modal-sandbox-first-run/SKILL.md`; use the other focused skills for CLI workflows, file workflows, Python SDK workflows, CLI contract changes, provider changes, docs maintenance, and live Modal tests.
+Optional repo-local skills live in `.agents/skills`, the project path used by
+the Vercel Labs `skills` CLI for Codex. They are source artifacts for agents
+and are not required at package runtime.
 
-To use a skill with an agent, point the agent at the relevant `SKILL.md` and ask it to follow that workflow.
+Use:
+
+- `.agents/skills/modal-sandbox-repo-understanding/SKILL.md` for repo
+  orientation and planning context.
+- `.agents/skills/modal-sandbox-cli-workflows/SKILL.md` for safe CLI and live
+  Modal workflow choices.
+- `.agents/skills/modal-sandbox-package-maintenance/SKILL.md` for SDK, CLI,
+  provider, docs, tests, and packaging changes.
+
+Useful `skills` CLI commands:
+
+```bash
+npx skills list --agent codex
+npx skills add vercel-labs/agent-skills --list
+npx skills find modal
+```
+
+To use a project skill manually, point the agent at the relevant `SKILL.md` and
+ask it to follow that workflow.
 
 ## Recommended Companion MCPs
 

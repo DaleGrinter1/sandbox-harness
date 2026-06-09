@@ -97,22 +97,18 @@ def test_beginner_examples_are_present() -> None:
     assert (examples / "persistent_volume.sh").read_text(encoding="utf-8").startswith("#!/usr/bin/env sh")
 
 
-def test_repo_local_codex_helpers_are_development_only_source_artifacts() -> None:
+def test_repo_local_agent_skills_are_development_only_source_artifacts() -> None:
     expected_skills = {
-        "modal-sandbox-cli-contract",
-        "modal-sandbox-first-run",
         "modal-sandbox-cli-workflows",
-        "modal-sandbox-docs-maintenance",
-        "modal-sandbox-file-workflows",
-        "modal-sandbox-live-tests",
-        "modal-sandbox-provider-adapter",
-        "modal-sandbox-python-sdk",
+        "modal-sandbox-package-maintenance",
+        "modal-sandbox-repo-understanding",
     }
     codex_root = Path(".codex")
-    skills_root = codex_root / "skills"
+    skills_root = Path(".agents") / "skills"
 
     assert (codex_root / "config.toml").read_text(encoding="utf-8")
     assert (codex_root / "README.md").read_text(encoding="utf-8")
+    assert not (codex_root / "skills").exists()
 
     skill_dirs = {path.name for path in skills_root.iterdir() if path.is_dir()}
 
