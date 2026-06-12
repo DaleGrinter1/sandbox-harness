@@ -102,6 +102,7 @@ def test_repo_local_agent_skills_are_development_only_source_artifacts() -> None
         "modal-sandbox-cli-workflows",
         "modal-sandbox-package-maintenance",
         "modal-sandbox-repo-understanding",
+        "modal-sandbox-understanding-check",
     }
     codex_root = Path(".codex")
     skills_root = Path(".agents") / "skills"

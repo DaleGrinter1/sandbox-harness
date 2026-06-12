@@ -28,6 +28,8 @@ Use:
   orientation and planning context.
 - `.agents/skills/modal-sandbox-cli-workflows/SKILL.md` for safe CLI and live
   Modal workflow choices.
+- `.agents/skills/modal-sandbox-understanding-check/SKILL.md` for quizzing or
+  coaching users on repo architecture, workflows, docs, and validation rules.
 - `.agents/skills/modal-sandbox-package-maintenance/SKILL.md` for SDK, CLI,
   provider, docs, tests, and packaging changes.
 

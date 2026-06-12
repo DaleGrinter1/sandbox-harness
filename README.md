@@ -246,6 +246,7 @@ Small examples live in `examples/`:
 - `examples/volume_mounts.py`: mount workspace and cache volumes.
 - `examples/reuse_sandbox.py`: create one sandbox and detach it for reuse.
 - `examples/node_dev_server.py`: expose a small Node server through a port.
+- `examples/openai_agent_loop.py`: prompt a tiny OpenAI Responses API loop.
 - `examples/cli_file_workflow.sh`: write, run, and read a file with the CLI.
 - `examples/persistent_volume.sh`: keep files across sandbox lifetimes with a
   Modal volume.
