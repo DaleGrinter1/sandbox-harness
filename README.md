@@ -187,16 +187,29 @@ See [docs/design-docs/vercel-style-sdk-compatibility.md](docs/design-docs/vercel
 The `Sandbox` object exposes a small synchronous API:
 
 ```python
+Sandbox.create(...)
+Sandbox.from_id(...)
+Sandbox.from_snapshot(...)
+Sandbox.from_provider(...)
+sb.config
+sb.sandbox_id
 sb.run("python hello.py")
+sb.run_command("python", ["-c", "print('hello')"])
+sb.run_command_detached("npm", ["run", "dev"])
 sb.write_text("hello.py", "print('hello')\n")
 sb.read_text("hello.py")
 sb.write_bytes("data.bin", b"hello")
 sb.read_bytes("data.bin")
+sb.write_files([{"path": "hello.py", "content": "print('hello')\n"}])
 sb.list_files(".")
 sb.mkdir("notes")
 sb.remove("notes", recursive=True)
 sb.copy_from_local("local.txt", "remote.txt")
 sb.copy_to_local("remote.txt", "local.txt")
+sb.domain(3000)
+sb.create_snapshot()
+sb.detach()
+sb.terminate()
 sb.close()
 ```
 
@@ -315,8 +328,9 @@ uv run sandbox doctor
 uv run sandbox quickstart
 ```
 
-Commands such as `quickstart --run`, `run`, `write`, `read`, `ls`, `upload`,
-`download`, `start`, and `stop` contact Modal.
+Commands such as `quickstart --run`, `start`, `stop`, `run`, `run-command`,
+`write`, `read`, `ls`, `mkdir`, `rm`, `upload`, `download`, `domain`, and
+`snapshot` contact Modal.
 
 **My file disappeared after a command.**
 
