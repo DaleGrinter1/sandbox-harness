@@ -1,3 +1,5 @@
+"""Command result and detached process helpers for sandbox execution."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -59,17 +61,29 @@ class SandboxCommand:
 
     @property
     def stdout(self) -> Any:
-        """Return the process stdout stream."""
+        """Return the process stdout stream.
+
+        Returns:
+            Provider-specific stdout stream object.
+        """
         return self._process.stdout
 
     @property
     def stderr(self) -> Any:
-        """Return the process stderr stream."""
+        """Return the process stderr stream.
+
+        Returns:
+            Provider-specific stderr stream object.
+        """
         return self._process.stderr
 
     @property
     def returncode(self) -> int | None:
-        """Return the process return code when available."""
+        """Return the process return code when available.
+
+        Returns:
+            Process return code, or `None` if the provider does not expose one.
+        """
         value = getattr(self._process, "returncode", None)
         return int(value) if value is not None else None
 

@@ -1,3 +1,5 @@
+"""Shared public configuration and metadata types for sandboxes."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

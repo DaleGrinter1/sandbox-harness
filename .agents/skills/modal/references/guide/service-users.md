@@ -17,11 +17,12 @@ After creation, you'll see the `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`. **This
 
 ## Use Service User Tokens
 
-Set the service user credentials as environment variables in your automated environment:
+Store the service user credentials in your automated environment's secret
+manager using Modal's expected variable names. Do not hardcode sample token
+values in source files or docs:
 
 ```bash
-export MODAL_TOKEN_ID=your-token-id
-export MODAL_TOKEN_SECRET=your-token-secret
+# Required secret names: MODAL_TOKEN_ID and MODAL_TOKEN_SECRET
 ```
 
 Once configured, you can use Modal's CLI and Python SDK as usual:

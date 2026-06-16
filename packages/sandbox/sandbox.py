@@ -1,3 +1,5 @@
+"""High-level synchronous SDK facade for Modal Sandboxes."""
+
 from __future__ import annotations
 
 import os
@@ -240,12 +242,20 @@ class Sandbox:
 
     @property
     def config(self) -> SandboxConfig:
-        """Return the effective sandbox configuration."""
+        """Return the effective sandbox configuration.
+
+        Returns:
+            Sandbox configuration resolved at creation or attachment time.
+        """
         return self._provider.config
 
     @property
     def sandbox_id(self) -> str | None:
-        """Return the Modal sandbox object ID when available."""
+        """Return the Modal sandbox object ID when available.
+
+        Returns:
+            Modal sandbox object ID, or `None` when unavailable.
+        """
         return self._provider.sandbox_id
 
     def run(
@@ -282,6 +292,17 @@ class Sandbox:
         """Run an argv-style command inside the sandbox.
 
         Unlike `run`, this method does not shell-wrap the command string.
+
+        Args:
+            cmd: Executable name or path.
+            args: Arguments passed directly to the executable.
+            cwd: Optional working directory inside the sandbox.
+            env: Optional per-command environment variables.
+            timeout: Optional per-call timeout in seconds.
+            max_output_bytes: Optional per-call output cap.
+
+        Returns:
+            Command output, exit status, duration, and timeout metadata.
         """
         return self._provider.run_command(
             cmd,
@@ -302,7 +323,19 @@ class Sandbox:
         timeout: int | None = None,
         pty: bool = False,
     ) -> SandboxCommand:
-        """Start an argv-style command and return a detached command handle."""
+        """Start an argv-style command and return a detached command handle.
+
+        Args:
+            cmd: Executable name or path.
+            args: Arguments passed directly to the executable.
+            cwd: Optional working directory inside the sandbox.
+            env: Optional per-command environment variables.
+            timeout: Optional command timeout in seconds.
+            pty: Whether to request a pseudo-terminal.
+
+        Returns:
+            Detached command wrapper.
+        """
         return self._provider.run_command_detached(cmd, args, cwd=cwd, env=env, timeout=timeout, pty=pty)
 
     def write_text(self, path: str, content: str) -> None:
@@ -419,7 +452,11 @@ class Sandbox:
         self._provider.detach()
 
     def terminate(self, *, wait: bool = True) -> None:
-        """Terminate the underlying sandbox."""
+        """Terminate the underlying sandbox.
+
+        Args:
+            wait: Whether to wait for provider termination to complete.
+        """
         self._provider.terminate(wait=wait)
 
     def domain(self, port: int) -> str:

@@ -285,6 +285,7 @@ Small examples live in `examples/`:
 
 - [CLI workflows](docs/references/cli.md)
 - [Vercel-style SDK compatibility](docs/design-docs/vercel-style-sdk-compatibility.md)
+- [Collaborator onboarding](docs/references/collaborator-onboarding.md)
 - [Modal setup](docs/references/modal-setup.md)
 - [Development](docs/references/development.md)
 - [Contributing](CONTRIBUTING.md)

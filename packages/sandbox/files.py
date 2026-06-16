@@ -1,3 +1,5 @@
+"""Data types for writing files into sandbox workspaces."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

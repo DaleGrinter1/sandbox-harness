@@ -1,3 +1,5 @@
+"""Volume mount declarations for Modal Sandbox workflows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

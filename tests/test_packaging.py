@@ -25,7 +25,12 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
     assert data["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"] == {
         "packages/sandbox/py.typed": "sandbox/py.typed",
     }
-    assert data["dependency-groups"]["dev"] == ["pyright>=1.1.407", "pytest>=8.0", "ruff>=0.14.0"]
+    assert data["dependency-groups"]["dev"] == [
+        "pre-commit>=4.0",
+        "pyright>=1.1.407",
+        "pytest>=8.0",
+        "ruff>=0.14.0",
+    ]
     assert data["tool"]["ruff"]["line-length"] == 120
     assert data["tool"]["pyright"]["typeCheckingMode"] == "basic"
 

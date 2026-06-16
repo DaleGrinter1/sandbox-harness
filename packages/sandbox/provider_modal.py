@@ -1,3 +1,5 @@
+"""Modal-backed provider implementation for sandbox operations."""
+
 from __future__ import annotations
 
 import os
@@ -43,7 +45,11 @@ class SandboxProvider(Protocol):
 
     @property
     def sandbox_id(self) -> str | None:
-        """Return the provider's sandbox ID when one is available."""
+        """Return the provider's sandbox ID when one is available.
+
+        Returns:
+            Modal sandbox object ID, or `None` when unavailable.
+        """
         ...
 
     def run(
@@ -117,39 +123,90 @@ class SandboxProvider(Protocol):
         ...
 
     def write_text(self, path: str, content: str) -> None:
-        """Write UTF-8 text to a sandbox path."""
+        """Write UTF-8 text to a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            content: Text content to write.
+        """
         ...
 
     def write_bytes(self, path: str, content: bytes) -> None:
-        """Write bytes to a sandbox path."""
+        """Write bytes to a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            content: Binary content to write.
+        """
         ...
 
     def read_text(self, path: str) -> str:
-        """Read UTF-8 text from a sandbox path."""
+        """Read UTF-8 text from a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            File contents as text.
+        """
         ...
 
     def read_bytes(self, path: str) -> bytes:
-        """Read bytes from a sandbox path."""
+        """Read bytes from a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            File contents as bytes.
+        """
         ...
 
     def list_files(self, path: str = ".") -> list[str]:
-        """List direct children of a sandbox directory."""
+        """List direct children of a sandbox directory.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            Sorted file and directory names.
+        """
         ...
 
     def mkdir(self, path: str, *, parents: bool = True) -> None:
-        """Create a directory inside the sandbox."""
+        """Create a directory inside the sandbox.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            parents: Whether to create missing parent directories.
+        """
         ...
 
     def remove(self, path: str, *, recursive: bool = False) -> None:
-        """Remove a file or directory inside the sandbox."""
+        """Remove a file or directory inside the sandbox.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            recursive: Whether to remove directories recursively.
+        """
         ...
 
     def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None:
-        """Copy a local file or directory into the sandbox."""
+        """Copy a local file or directory into the sandbox.
+
+        Args:
+            local_path: Local filesystem path.
+            remote_path: Relative workspace path, or absolute sandbox path.
+        """
         ...
 
     def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
-        """Copy a sandbox file or directory to the local filesystem."""
+        """Copy a sandbox file or directory to the local filesystem.
+
+        Args:
+            remote_path: Relative workspace path, or absolute sandbox path.
+            local_path: Local filesystem destination path.
+        """
         ...
 
     def detach(self) -> None:
@@ -157,15 +214,30 @@ class SandboxProvider(Protocol):
         ...
 
     def terminate(self, *, wait: bool = True) -> None:
-        """Terminate the sandbox."""
+        """Terminate the sandbox.
+
+        Args:
+            wait: Whether to wait for provider termination to complete.
+        """
         ...
 
     def domain(self, port: int) -> str:
-        """Return the public URL for a declared sandbox port."""
+        """Return the public URL for a declared sandbox port.
+
+        Args:
+            port: Port declared when the sandbox was created.
+
+        Returns:
+            Public URL for the sandbox tunnel.
+        """
         ...
 
     def create_snapshot(self) -> SandboxSnapshot:
-        """Return metadata for a volume-backed workspace snapshot."""
+        """Return metadata for a volume-backed workspace snapshot.
+
+        Returns:
+            Snapshot metadata for the mounted workspace volume.
+        """
         ...
 
     def close(self) -> None:
@@ -571,7 +643,19 @@ class ModalSandboxProvider:
         timeout: int | None = None,
         max_output_bytes: int | None = None,
     ) -> CommandResult:
-        """Run an argv-style command without shell wrapping."""
+        """Run an argv-style command without shell wrapping.
+
+        Args:
+            cmd: Executable name or path.
+            args: Arguments passed directly to the executable.
+            cwd: Optional working directory inside the sandbox.
+            env: Optional per-command environment variables.
+            timeout: Optional per-call timeout in seconds.
+            max_output_bytes: Optional per-call output cap.
+
+        Returns:
+            Command result with captured output and timing metadata.
+        """
         command, command_args = _argv_command(cmd, args)
         effective_timeout = timeout if timeout is not None else self.config.command_timeout
         effective_cwd = cwd or self.config.workdir or self.config.workspace
@@ -626,7 +710,19 @@ class ModalSandboxProvider:
         timeout: int | None = None,
         pty: bool = False,
     ) -> SandboxCommand:
-        """Start an argv-style command and return a process handle."""
+        """Start an argv-style command and return a process handle.
+
+        Args:
+            cmd: Executable name or path.
+            args: Arguments passed directly to the executable.
+            cwd: Optional working directory inside the sandbox.
+            env: Optional per-command environment variables.
+            timeout: Optional command timeout in seconds.
+            pty: Whether to request a pseudo-terminal.
+
+        Returns:
+            Detached command wrapper.
+        """
         command_args = tuple(str(arg) for arg in (args or ()))
         effective_timeout = timeout if timeout is not None else self.config.command_timeout
         effective_cwd = cwd or self.config.workdir or self.config.workspace
@@ -645,35 +741,66 @@ class ModalSandboxProvider:
         return SandboxCommand(process)
 
     def write_text(self, path: str, content: str) -> None:
-        """Write UTF-8 text through Modal's filesystem API."""
+        """Write UTF-8 text through Modal's filesystem API.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            content: Text content to write.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.write_text(content, remote_path), context=f"writing text to {remote_path}"
         )
 
     def write_bytes(self, path: str, content: bytes) -> None:
-        """Write bytes through Modal's filesystem API."""
+        """Write bytes through Modal's filesystem API.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            content: Binary content to write.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.write_bytes(content, remote_path), context=f"writing bytes to {remote_path}"
         )
 
     def read_text(self, path: str) -> str:
-        """Read UTF-8 text through Modal's filesystem API."""
+        """Read UTF-8 text through Modal's filesystem API.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            File contents as text.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         return self._modal_call(
             lambda: self.filesystem.read_text(remote_path), context=f"reading text from {remote_path}"
         )
 
     def read_bytes(self, path: str) -> bytes:
-        """Read bytes through Modal's filesystem API."""
+        """Read bytes through Modal's filesystem API.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            File contents as bytes.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         return self._modal_call(
             lambda: self.filesystem.read_bytes(remote_path), context=f"reading bytes from {remote_path}"
         )
 
     def list_files(self, path: str = ".") -> list[str]:
-        """List direct children of a sandbox directory."""
+        """List direct children of a sandbox directory.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            Sorted file and directory names.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         entries = self._modal_call(
             lambda: self.filesystem.list_files(remote_path), context=f"listing files in {remote_path}"
@@ -681,7 +808,12 @@ class ModalSandboxProvider:
         return sorted(str(getattr(entry, "name", entry)) for entry in entries)
 
     def mkdir(self, path: str, *, parents: bool = True) -> None:
-        """Create a sandbox directory."""
+        """Create a sandbox directory.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            parents: Whether to create missing parent directories.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.make_directory(remote_path, create_parents=parents),
@@ -689,14 +821,24 @@ class ModalSandboxProvider:
         )
 
     def remove(self, path: str, *, recursive: bool = False) -> None:
-        """Remove a sandbox file or directory."""
+        """Remove a sandbox file or directory.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            recursive: Whether to remove directories recursively.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.remove(remote_path, recursive=recursive), context=f"removing {remote_path}"
         )
 
     def copy_from_local(self, local_path: str | os.PathLike[str], remote_path: str) -> None:
-        """Copy local data into the sandbox."""
+        """Copy local data into the sandbox.
+
+        Args:
+            local_path: Local filesystem path.
+            remote_path: Relative workspace path, or absolute sandbox path.
+        """
         resolved_remote_path = sandbox_path(remote_path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.copy_from_local(Path(local_path), resolved_remote_path),
@@ -704,7 +846,12 @@ class ModalSandboxProvider:
         )
 
     def copy_to_local(self, remote_path: str, local_path: str | os.PathLike[str]) -> None:
-        """Copy sandbox data to the local filesystem."""
+        """Copy sandbox data to the local filesystem.
+
+        Args:
+            remote_path: Relative workspace path, or absolute sandbox path.
+            local_path: Local filesystem destination path.
+        """
         resolved_remote_path = sandbox_path(remote_path, self.config.workspace)
         self._modal_call(
             lambda: self.filesystem.copy_to_local(resolved_remote_path, Path(local_path)),
@@ -723,7 +870,11 @@ class ModalSandboxProvider:
             _raise_provider_error(exc, context="detaching Modal sandbox")
 
     def terminate(self, *, wait: bool = True) -> None:
-        """Terminate the Modal sandbox."""
+        """Terminate the Modal sandbox.
+
+        Args:
+            wait: Whether to wait for Modal termination to complete.
+        """
         terminate = getattr(self._sandbox, "terminate", None)
         try:
             if callable(terminate):
@@ -734,7 +885,14 @@ class ModalSandboxProvider:
             _raise_provider_error(exc, context="terminating Modal sandbox")
 
     def domain(self, port: int) -> str:
-        """Return the public HTTPS URL for a declared sandbox port."""
+        """Return the public HTTPS URL for a declared sandbox port.
+
+        Args:
+            port: Port declared when the sandbox was created.
+
+        Returns:
+            Public URL for the Modal tunnel.
+        """
         try:
             tunnels = self._sandbox.tunnels()
             tunnel = tunnels.get(port)
@@ -753,6 +911,13 @@ class ModalSandboxProvider:
         Modal Sandbox volume writes are backed by the mounted workspace volume.
         A fresh `modal.Volume.from_name(...).commit()` is not valid here because
         Modal only allows `commit()` on a mounted volume inside a container.
+
+        Returns:
+            Snapshot metadata for the mounted workspace volume.
+
+        Raises:
+            SandboxConfigurationError: If the workspace is not backed by a
+                named volume.
         """
         workspace_volume = _workspace_volume_name(self.config)
         if workspace_volume is None:

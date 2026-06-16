@@ -1,3 +1,5 @@
+"""Command-line interface for Modal Sandbox workflows."""
+
 from __future__ import annotations
 
 import argparse

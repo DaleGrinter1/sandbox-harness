@@ -4,13 +4,13 @@ Default tests do not create real Modal resources.
 
 ```bash
 uv sync
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-./scripts/execplan/check.sh
-uv build
-uv run sandbox --help
+./scripts/dev/check.sh
+```
+
+For a shorter no-resource walkthrough, run:
+
+```bash
+./scripts/dev/quickstart.sh
 ```
 
 ## Release Checklist
@@ -18,19 +18,16 @@ uv run sandbox --help
 Before cutting a release, run the full local contract:
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-./scripts/execplan/check.sh
-uv build
-uv run sandbox schema
-uv run sandbox --help
+./scripts/dev/check.sh
 ```
 
 When CLI schema metadata changes, regenerate and review
 `docs/generated/cli-schema.json`; the default test suite compares it to the
 runtime schema.
+
+```bash
+./scripts/dev/schema.sh
+```
 
 Then check the built package metadata and install path:
 
@@ -42,7 +39,7 @@ uv run python -c "from sandbox import Sandbox, SandboxVolume; from sandbox.volum
 Live Modal tests are opt-in:
 
 ```bash
-MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
+MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
 ```
 
 The live suite creates real Modal resources and covers the beginner acceptance

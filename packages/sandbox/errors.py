@@ -1,3 +1,5 @@
+"""Exception types raised by the sandbox SDK."""
+
 from __future__ import annotations
 
 

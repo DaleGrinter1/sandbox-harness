@@ -5,6 +5,7 @@ Reference docs are stable operational notes and migrated repo docs.
 ## References
 
 - [CLI Workflows](cli.md)
+- [Collaborator Onboarding](collaborator-onboarding.md)
 - [Development](development.md)
 - [Modal Setup](modal-setup.md)
 - [Modal Skills](modal-skills.md)
