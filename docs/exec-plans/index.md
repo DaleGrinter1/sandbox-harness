@@ -9,6 +9,7 @@ No active initiatives are currently tracked.
 ## Completed
 
 - [Repository Knowledge System](completed/repository-knowledge-system/PLAN_repository-knowledge-system.md)
+- [Release Readiness Hardening](completed/release-readiness-hardening/PLAN_release-readiness-hardening.md)
 
 ## Workflow Summary
 

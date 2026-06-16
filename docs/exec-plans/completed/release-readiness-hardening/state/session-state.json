@@ -1,0 +1,14 @@
+{
+  "initiative": "release-readiness-hardening",
+  "schema_version": 1,
+  "active_feature": "ci-and-release-governance",
+  "blockers": [],
+  "next_action": "Initiative complete; keep this record under completed exec plans.",
+  "handoff_rules": [
+    "Read PLAN_release-readiness-hardening.md before editing state.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence is recorded."
+  ],
+  "last_updated": "2026-06-16T04:47:39Z"
+}

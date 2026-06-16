@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -322,6 +323,49 @@ def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> 
     assert payload["error"]["message"] == "argument --volume: --volume mount path must be absolute"
 
 
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--workspace", "workspace", "run", "true"], "argument --workspace: value must be an absolute sandbox path"),
+        (["--timeout", "0", "run", "true"], "argument --timeout: value must be a positive integer"),
+        (
+            ["--sandbox-timeout", "-1", "run", "true"],
+            "argument --sandbox-timeout: value must be a positive integer",
+        ),
+        (["--cpu", "0", "run", "true"], "argument --cpu: value must be a positive number"),
+        (["--memory", "0", "run", "true"], "argument --memory: value must be a positive integer"),
+        (
+            ["--max-output-bytes", "-1", "run", "true"],
+            "argument --max-output-bytes: value must be a non-negative integer",
+        ),
+        (
+            ["--encrypted-port", "65536", "run", "true"],
+            "argument --encrypted-port: port must be an integer between 1 and 65535",
+        ),
+        (["--allow-domain", "", "run", "true"], "argument --allow-domain: value must not be empty"),
+    ],
+)
+def test_cli_invalid_global_configuration_reports_argument_error_without_creating_sandbox(
+    monkeypatch, capsys, argv, message
+) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == message
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
 def test_cli_run_command_uses_argv_api(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -395,7 +439,9 @@ def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
     }
 
 
-def test_cli_snapshot_without_workspace_volume_reports_json_runtime_error(monkeypatch, capsys) -> None:
+def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_without_creating_sandbox(
+    monkeypatch, capsys
+) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = False
@@ -406,14 +452,38 @@ def test_cli_snapshot_without_workspace_volume_reports_json_runtime_error(monkey
 
     captured = capsys.readouterr()
     payload = json.loads(captured.err)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert captured.out == ""
     assert payload["status"] == "error"
-    assert payload["error"]["type"] == "runtime_error"
-    assert payload["error"]["message"] == "create_snapshot requires a string workspace volume."
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == "snapshot requires --workspace-volume"
     assert payload["error"]["next_steps"] == [
         "Run `sandbox doctor` to inspect local setup without creating Modal resources."
     ]
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_domain_without_sandbox_id_reports_json_argument_error_without_creating_sandbox(
+    monkeypatch, capsys
+) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--encrypted-port", "3000", "domain", "3000"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert exc.value.code == 2
+    assert captured.out == ""
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == "domain requires --sandbox-id from a started sandbox"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
 
 
 def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
@@ -601,7 +671,7 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
     assert payload["commands"]["doctor"]["output"]["summary"] == "object"
     assert payload["global_options"]["--max-output-bytes"] == (
-        "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760."
+        "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes."
     )
     assert payload["global_options"]["--runtime"] == (
         "Vercel-style runtime alias. Supported values: python3.13, node24, node22."
@@ -617,6 +687,9 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     )
     assert payload["lifecycle"]["domain_allowlist"] == (
         "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains."
+    )
+    assert payload["lifecycle"]["preflight_validation"] == (
+        "Invalid lifecycle combinations and global configuration are rejected before sandbox creation."
     )
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
     assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
@@ -699,6 +772,12 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         assert isinstance(command_schema["output"], dict), command_name
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
+
+
+def test_generated_cli_schema_matches_runtime_contract() -> None:
+    generated_schema = json.loads(Path("docs/generated/cli-schema.json").read_text(encoding="utf-8"))
+
+    assert generated_schema == cli._schema_payload()
 
 
 @pytest.mark.parametrize("argv", [["schema"], ["doctor"], ["quickstart"]])

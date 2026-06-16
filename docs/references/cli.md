@@ -88,7 +88,7 @@ uv run sandbox run-command --use-command-exit-code python -c "raise SystemExit(7
 
 Use `--max-output-bytes` to change the captured stdout/stderr cap for CLI
 commands. The guard truncates each stream independently after command output is
-captured; it does not live-stream output.
+captured; it does not live-stream output. Use `0` to capture no bytes.
 
 ```bash
 uv run sandbox --max-output-bytes 1048576 run "python noisy.py"
@@ -149,8 +149,8 @@ uv run sandbox --workspace-volume my-workspace snapshot
 
 The snapshot response names the mounted workspace volume that backs the
 checkpoint. It does not call Modal's local `Volume.commit()` API. Running
-`snapshot` without `--workspace-volume` returns a JSON runtime error because
-there is no persistent workspace volume to name.
+`snapshot` without `--workspace-volume` returns a JSON argument error before
+creating a sandbox because there is no persistent workspace volume to name.
 
 ## Long-Lived Sandboxes
 
@@ -168,6 +168,10 @@ uv run sandbox --sandbox-id sb-abc123 run "python hello.py"
 uv run sandbox --sandbox-id sb-abc123 read hello.py
 uv run sandbox --sandbox-id sb-abc123 domain 3000
 ```
+
+`domain` requires `--sandbox-id`; use `start` to create a reusable sandbox with
+declared ports before resolving a port URL. Invalid lifecycle combinations and
+invalid global configuration are rejected before creating Modal resources.
 
 Terminate it when you are done:
 

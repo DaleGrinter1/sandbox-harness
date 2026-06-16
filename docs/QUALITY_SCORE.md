@@ -2,7 +2,7 @@
 
 Owner: repository maintainer
 
-Date: 2026-06-09
+Date: 2026-06-16
 
 ## Rubric
 
@@ -12,7 +12,7 @@ Score each area from 1 to 5. Any score below 4 should have an action item.
 | --- | ---: | --- | --- |
 | SDK API clarity | 4 | Focused modules and top-level exports. | Keep import compatibility tests current. |
 | CLI contract | 4 | JSON schema, golden workflows, CLI tests, and CI schema checks cover core commands. | Keep parser, schema, docs, and tests moving together. |
-| Modal safety | 4 | Live tests are opt-in; discovery is resource-free; fake tests cover contextual provider failures. | Run live acceptance before release when credentials are available. |
+| Modal safety | 4 | Live tests are opt-in; discovery is resource-free; fake tests cover contextual provider failures; live acceptance passed for the 0.2.0 release candidate on 2026-06-16. | Rerun live acceptance before future provider releases. |
 | Docs navigation | 4 | Harness-style docs scaffold exists. | Keep links updated during doc gardening. |
 | Agent handoff | 4 | Exec plans use JSON state and validator. | Append progress entries during long-running work. |
 

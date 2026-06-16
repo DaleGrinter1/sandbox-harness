@@ -264,6 +264,8 @@ attached with `--sandbox-id` are detached on close and keep running.
 
 Use `start` when separate CLI calls should share one live sandbox. Use
 `--workspace-volume` when separate sandbox lifetimes need to share files.
+Commands such as `snapshot` and `domain` validate their required lifecycle
+flags before creating Modal resources.
 
 ## Examples
 

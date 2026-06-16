@@ -34,6 +34,9 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      - name: Validate execution plan state
+        run: ./scripts/execplan/check.sh
+
       - name: Build package
         run: uv build
 

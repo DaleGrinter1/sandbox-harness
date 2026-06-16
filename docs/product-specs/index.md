@@ -13,7 +13,10 @@ Product specs define what users should be able to do with `modal-sandbox-sdk`.
 
 ## Specs
 
+- [CLI Golden Workflows](cli-golden-workflows.md)
 - [Sandbox Domain Allowlist](sandbox-domain-allowlist.md)
+- [Vercel-Style Conveniences](vercel-style-conveniences.md)
+- [Volume-Backed Snapshots](volume-backed-snapshots.md)
 
 ## Spec Maintenance
 

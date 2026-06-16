@@ -8,6 +8,7 @@ uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
+./scripts/execplan/check.sh
 uv build
 uv run sandbox --help
 ```
@@ -21,10 +22,15 @@ uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
+./scripts/execplan/check.sh
 uv build
 uv run sandbox schema
 uv run sandbox --help
 ```
+
+When CLI schema metadata changes, regenerate and review
+`docs/generated/cli-schema.json`; the default test suite compares it to the
+runtime schema.
 
 Then check the built package metadata and install path:
 

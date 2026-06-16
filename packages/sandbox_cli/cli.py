@@ -152,7 +152,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {
             "--cwd": "Working directory inside the sandbox.",
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
-            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately.",
+            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
         },
         "output": COMMAND_RESULT_SCHEMA,
         "example": "sandbox --image python:3.13-slim run \"python -c 'print(123)'\"",
@@ -168,7 +168,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "--cwd": "Working directory inside the sandbox.",
             "--env KEY=VALUE": "Per-command environment variable. Repeatable.",
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
-            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately.",
+            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
         },
         "output": COMMAND_RESULT_SCHEMA,
         "example": "sandbox --runtime python3.13 run-command python -c 'print(123)'",
@@ -243,7 +243,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "summary": "Print the public URL for a declared sandbox port.",
         "creates_sandbox": True,
         "arguments": {"port": "Port declared with --encrypted-port or --unencrypted-port at sandbox creation."},
-        "options": {},
+        "options": {"requires --sandbox-id": "Attach to a sandbox created with a declared port."},
         "output": {"port": "integer", "url": "string"},
         "example": "sandbox --sandbox-id sb-abc123 domain 3000",
     },
@@ -334,6 +334,46 @@ def _positive_int(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("value must be a positive integer")
     return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive number") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive number")
+    return parsed
+
+
+def _port(value: str) -> int:
+    parsed = _positive_int(value)
+    if parsed > 65535:
+        raise argparse.ArgumentTypeError("port must be an integer between 1 and 65535")
+    return parsed
+
+
+def _absolute_sandbox_path(value: str) -> str:
+    if not value or not value.startswith("/"):
+        raise argparse.ArgumentTypeError("value must be an absolute sandbox path")
+    return value
+
+
+def _non_empty_value(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise argparse.ArgumentTypeError("value must not be empty")
+    return normalized
 
 
 def _parse_volume(value: str) -> SandboxVolume:
@@ -468,6 +508,18 @@ def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParse
     return sandbox_id
 
 
+def _preflight_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Reject invalid lifecycle combinations before creating Modal resources."""
+    if args.command_name == "snapshot" and not args.workspace_volume:
+        parser.error("snapshot requires --workspace-volume")
+    if args.command_name == "domain" and not args.sandbox_id:
+        parser.error("domain requires --sandbox-id from a started sandbox")
+    if args.command_name == "quickstart" and args.run and args.sandbox_id:
+        parser.error("--sandbox-id cannot be used with quickstart --run")
+    if args.command_name == "start" and args.sandbox_id:
+        parser.error("--sandbox-id cannot be used with start")
+
+
 def _start_payload(sandbox: Sandbox) -> dict[str, object]:
     """Build JSON output for a newly started long-lived sandbox.
 
@@ -517,7 +569,7 @@ def _package_version() -> str:
     try:
         return metadata.version("modal-sandbox-sdk")
     except metadata.PackageNotFoundError:
-        return "0.1.0"
+        return "0.2.0"
 
 
 def _modal_package_info() -> dict[str, object]:
@@ -658,7 +710,7 @@ def _schema_payload() -> dict[str, object]:
             "--block-network": "Block outbound network access from the sandbox.",
             "--allow-domain DOMAIN": "Allow sandbox outbound network access to a domain. Repeatable.",
             "--sandbox-id": "Attach to an existing Modal sandbox instead of creating one.",
-            "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760.",
+            "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
             "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
             "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
         },
@@ -692,6 +744,7 @@ def _schema_payload() -> dict[str, object]:
             "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
             "volume_mounts": "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths.",
             "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
+            "preflight_validation": "Invalid lifecycle combinations and global configuration are rejected before sandbox creation.",
         },
         "auth": {
             "requires_modal_credentials": True,
@@ -819,26 +872,26 @@ def build_parser() -> argparse.ArgumentParser:
     # These flags intentionally mirror the ergonomic SDK creation options so
     # shell usage and Python usage teach the same mental model.
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
-    parser.add_argument("--workspace", default="/workspace")
+    parser.add_argument("--workspace", type=_absolute_sandbox_path, default="/workspace")
     parser.add_argument("--image", help="Registry image tag or alias such as py313, py312, py311, or ubuntu24.")
     parser.add_argument(
         "--runtime", choices=["python3.13", "node24", "node22"], help="Runtime alias such as python3.13."
     )
-    parser.add_argument("--workspace-volume")
+    parser.add_argument("--workspace-volume", type=_non_empty_value)
     parser.add_argument("--volume", type=_parse_volume, action="append", default=[], metavar="NAME:/MOUNT")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
-    parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--sandbox-timeout", type=int, default=300)
-    parser.add_argument("--cpu", type=float)
-    parser.add_argument("--memory", type=int)
+    parser.add_argument("--timeout", type=_positive_int, default=30)
+    parser.add_argument("--sandbox-timeout", type=_positive_int, default=300)
+    parser.add_argument("--cpu", type=_positive_float)
+    parser.add_argument("--memory", type=_positive_int)
     parser.add_argument("--gpu")
     parser.add_argument("--region")
     parser.add_argument("--block-network", action="store_true")
-    parser.add_argument("--allow-domain", action="append", default=[], metavar="DOMAIN")
+    parser.add_argument("--allow-domain", type=_non_empty_value, action="append", default=[], metavar="DOMAIN")
     parser.add_argument("--sandbox-id")
-    parser.add_argument("--max-output-bytes", type=_positive_int, default=10 * 1024 * 1024)
-    parser.add_argument("--encrypted-port", type=_positive_int, action="append", default=[], metavar="PORT")
-    parser.add_argument("--unencrypted-port", type=_positive_int, action="append", default=[], metavar="PORT")
+    parser.add_argument("--max-output-bytes", type=_non_negative_int, default=10 * 1024 * 1024)
+    parser.add_argument("--encrypted-port", type=_port, action="append", default=[], metavar="PORT")
+    parser.add_argument("--unencrypted-port", type=_port, action="append", default=[], metavar="PORT")
     parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
 
     subparsers = parser.add_subparsers(dest="command_name", required=True, parser_class=JsonArgumentParser)
@@ -937,6 +990,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+    _preflight_args(args, parser)
 
     if args.command_name == "schema":
         _print_json(_schema_payload())
@@ -953,8 +1007,6 @@ def main(argv: list[str] | None = None) -> int:
     sandbox: Sandbox | None = None
     try:
         if args.command_name == "quickstart":
-            if args.sandbox_id:
-                parser.error("--sandbox-id cannot be used with quickstart --run")
             sandbox = _sandbox_from_args(args)
             result = sandbox.run(QUICKSTART_COMMAND)
             payload = result.to_dict()
@@ -964,8 +1016,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command_name == "start":
-            if args.sandbox_id:
-                parser.error("--sandbox-id cannot be used with start")
             sandbox = _sandbox_from_args(args, sandbox_id=None)
             payload = _start_payload(sandbox)
             sandbox.detach()

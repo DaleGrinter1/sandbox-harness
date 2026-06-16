@@ -1,0 +1,56 @@
+{
+  "initiative": "release-readiness-hardening",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "cli-preflight-validation",
+      "title": "Reject invalid CLI lifecycle and configuration before sandbox creation",
+      "description": "Add preflight argument checks for lifecycle-sensitive commands and numeric/path configuration.",
+      "priority": 1,
+      "passes": true,
+      "evidence": [
+        "uv run pytest tests/test_cli.py passed",
+        "packages/sandbox_cli/cli.py rejects snapshot/domain lifecycle mismatches before Sandbox creation",
+        "tests/test_cli.py covers invalid global configuration without Sandbox creation"
+      ]
+    },
+    {
+      "id": "product-spec-coverage",
+      "title": "Document shipped public surfaces in product specs",
+      "description": "Add product specs for CLI workflows, volume-backed snapshots, and Vercel-style conveniences.",
+      "priority": 2,
+      "passes": true,
+      "evidence": [
+        "docs/product-specs/cli-golden-workflows.md added",
+        "docs/product-specs/volume-backed-snapshots.md added",
+        "docs/product-specs/vercel-style-conveniences.md added",
+        "docs/product-specs/index.md links new specs"
+      ]
+    },
+    {
+      "id": "generated-schema-contract",
+      "title": "Check the generated CLI schema contract",
+      "description": "Add a generated CLI schema artifact or focused validation so schema drift is reviewable.",
+      "priority": 3,
+      "passes": true,
+      "evidence": [
+        "docs/generated/cli-schema.json generated from runtime CLI schema",
+        "tests/test_cli.py compares generated schema to cli._schema_payload()",
+        "uv run pytest tests/test_cli.py passed"
+      ]
+    },
+    {
+      "id": "ci-and-release-governance",
+      "title": "Validate exec-plan state in CI and finish release governance",
+      "description": "Wire exec-plan validation into CI and update release-facing governance notes.",
+      "priority": 4,
+      "passes": true,
+      "evidence": [
+        ".github/workflows/tests.yml runs ./scripts/execplan/check.sh",
+        "CONTRIBUTING.md release checklist mentions generated contracts",
+        "docs/references/development.md release checklist includes exec-plan validation",
+        "CHANGELOG.md includes CI, schema, spec, and CLI preflight release notes"
+      ]
+    }
+  ]
+}
