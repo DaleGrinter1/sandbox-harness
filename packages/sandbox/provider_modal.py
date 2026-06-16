@@ -398,6 +398,9 @@ class ModalSandboxProvider:
                 "memory": config.memory,
                 "gpu": config.gpu,
                 "region": config.region,
+                "outbound_domain_allowlist": (
+                    list(config.outbound_domain_allowlist) if config.outbound_domain_allowlist else None
+                ),
                 "encrypted_ports": list(config.encrypted_ports) if config.encrypted_ports else None,
                 "unencrypted_ports": list(config.unencrypted_ports) if config.unencrypted_ports else None,
             }

@@ -285,6 +285,24 @@ def test_create_stores_declared_ports(monkeypatch) -> None:
     assert created_configs[-1].unencrypted_ports == (9229,)
 
 
+def test_create_stores_outbound_domain_allowlist(monkeypatch) -> None:
+    created_configs: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            created_configs.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    Sandbox.create(outbound_domain_allowlist=[" api.openai.com ", "github.com"])
+
+    assert created_configs[-1].outbound_domain_allowlist == ("api.openai.com", "github.com")
+
+
 def test_create_accepts_first_class_volume_mounts(monkeypatch) -> None:
     created_configs: list[SandboxConfig] = []
 
@@ -322,6 +340,14 @@ def test_create_rejects_invalid_volume_mounts() -> None:
                 SandboxVolume.workspace("other-volume"),
             ]
         )
+
+
+def test_create_rejects_invalid_domain_allowlist() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        Sandbox.create(outbound_domain_allowlist=[""])
+
+    with pytest.raises(TypeError, match="must contain strings"):
+        Sandbox.create(outbound_domain_allowlist=["api.openai.com", 123])  # type: ignore[list-item]
 
 
 def test_create_rejects_runtime_and_image_conflict() -> None:

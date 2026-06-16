@@ -14,7 +14,7 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
     assert data["project"]["authors"] == [{"name": "DaleGrinter1", "email": "dalegrinter1@gmail.com"}]
     assert "License :: OSI Approved :: MIT License" in data["project"]["classifiers"]
     assert data["project"]["urls"]["Repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
-    assert data["project"]["dependencies"] == ["modal>=1.4.3"]
+    assert data["project"]["dependencies"] == ["modal>=1.5.0"]
     assert data["project"]["scripts"] == {
         "sandbox": "sandbox_cli.cli:main",
     }
@@ -113,7 +113,8 @@ def test_repo_local_agent_skills_are_development_only_source_artifacts() -> None
 
     skill_dirs = {path.name for path in skills_root.iterdir() if path.is_dir()}
 
-    assert skill_dirs == expected_skills
+    assert expected_skills <= skill_dirs
+    assert skill_dirs - expected_skills <= {"modal"}
 
     for skill_name in expected_skills:
         skill_dir = skills_root / skill_name

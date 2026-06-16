@@ -211,6 +211,7 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
             gpu="T4",
             region="us-east-1",
             block_network=True,
+            outbound_domain_allowlist=("api.openai.com", "github.com"),
             encrypted_ports=(3000,),
             unencrypted_ports=(9229,),
         )
@@ -235,6 +236,7 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
     assert kwargs["gpu"] == "T4"
     assert kwargs["region"] == "us-east-1"
     assert kwargs["block_network"] is True
+    assert kwargs["outbound_domain_allowlist"] == ["api.openai.com", "github.com"]
     assert kwargs["encrypted_ports"] == [3000]
     assert kwargs["unencrypted_ports"] == [9229]
 

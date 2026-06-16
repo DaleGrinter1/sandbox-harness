@@ -52,6 +52,7 @@ class SandboxConfig:
         gpu: GPU request passed through to Modal.
         region: Region preference passed through to Modal.
         block_network: Whether Modal should block outbound network access.
+        outbound_domain_allowlist: Domains that sandbox processes may connect to.
         max_output_bytes: Maximum captured bytes per output stream.
         encrypted_ports: HTTPS ports exposed through Modal tunnels.
         unencrypted_ports: TCP ports exposed through Modal tunnels.
@@ -71,6 +72,7 @@ class SandboxConfig:
     gpu: str | None = None
     region: str | list[str] | None = None
     block_network: bool = False
+    outbound_domain_allowlist: tuple[str, ...] = ()
     max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES
     encrypted_ports: tuple[int, ...] = ()
     unencrypted_ports: tuple[int, ...] = ()

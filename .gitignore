@@ -11,3 +11,4 @@ __pycache__/
 artifacts/
 dist/
 *.egg-info/
+local/

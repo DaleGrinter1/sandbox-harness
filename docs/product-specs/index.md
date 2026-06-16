@@ -8,6 +8,12 @@ Product specs define what users should be able to do with `modal-sandbox-sdk`.
 - JSON-first CLI for discovery, command execution, file workflows, volumes, and long-lived sandbox reuse.
 - First-class volume mounts through `SandboxVolume` and CLI `--volume NAME:/mount`.
 - Vercel-style conveniences for runtime aliases, argv commands, ports, and volume-backed snapshots.
+- Sandbox outbound domain allowlisting through SDK `outbound_domain_allowlist`
+  and CLI `--allow-domain`.
+
+## Specs
+
+- [Sandbox Domain Allowlist](sandbox-domain-allowlist.md)
 
 ## Spec Maintenance
 

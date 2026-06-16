@@ -94,6 +94,13 @@ captured; it does not live-stream output.
 uv run sandbox --max-output-bytes 1048576 run "python noisy.py"
 ```
 
+Use `--allow-domain` to restrict outbound sandbox network access to specific
+domains. Repeat the flag for multiple domains:
+
+```bash
+uv run sandbox --allow-domain api.openai.com --allow-domain github.com run "python app.py"
+```
+
 Mount additional Modal volumes with `--volume NAME:/absolute/path`:
 
 ```bash

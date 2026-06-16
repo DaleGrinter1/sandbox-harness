@@ -32,10 +32,29 @@ def _run_cli_json(capsys: pytest.CaptureFixture[str], args: list[str]) -> dict[s
 def _delete_modal_volume(name: str) -> None:
     import modal
 
-    modal.Volume.delete(name)
+    objects = getattr(modal.Volume, "objects", None)
+    delete_object = getattr(objects, "delete", None)
+    if callable(delete_object):
+        delete_object(name)
+        return
+    legacy_delete = getattr(modal.Volume, "delete", None)
+    if callable(legacy_delete):
+        legacy_delete(name)
+        return
+    raise AttributeError("modal.Volume has neither objects.delete nor legacy delete")
 
 
-def test_delete_modal_volume_uses_modal_delete(monkeypatch) -> None:
+def test_delete_modal_volume_uses_modal_objects_delete(monkeypatch) -> None:
+    deleted: list[str] = []
+    fake_modal = SimpleNamespace(Volume=SimpleNamespace(objects=SimpleNamespace(delete=deleted.append)))
+    monkeypatch.setitem(sys.modules, "modal", fake_modal)
+
+    _delete_modal_volume("modal-sandbox-sdk-workspace-test")
+
+    assert deleted == ["modal-sandbox-sdk-workspace-test"]
+
+
+def test_delete_modal_volume_falls_back_to_legacy_delete(monkeypatch) -> None:
     deleted: list[str] = []
     fake_modal = SimpleNamespace(Volume=SimpleNamespace(delete=deleted.append))
     monkeypatch.setitem(sys.modules, "modal", fake_modal)

@@ -282,6 +282,29 @@ def test_cli_create_accepts_runtime_and_declared_ports(monkeypatch, capsys) -> N
     assert FakeSandbox.create_calls[-1]["unencrypted_ports"] == (9229,)
 
 
+def test_cli_create_accepts_outbound_domain_allowlist(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--allow-domain",
+            "api.openai.com",
+            "--allow-domain",
+            "github.com",
+            "run",
+            "python -c 'print(123)'",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert FakeSandbox.create_calls[-1]["outbound_domain_allowlist"] == ("api.openai.com", "github.com")
+
+
 def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -586,8 +609,14 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["global_options"]["--volume NAME:/mount"] == (
         "Modal volume name and absolute sandbox mount path. Repeatable."
     )
+    assert payload["global_options"]["--allow-domain DOMAIN"] == (
+        "Allow sandbox outbound network access to a domain. Repeatable."
+    )
     assert payload["lifecycle"]["volume_mounts"] == (
         "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths."
+    )
+    assert payload["lifecycle"]["domain_allowlist"] == (
+        "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains."
     )
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
     assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"

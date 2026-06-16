@@ -58,6 +58,7 @@ class Sandbox:
         gpu: str | None = None,
         region: str | list[str] | None = None,
         block_network: bool = False,
+        outbound_domain_allowlist: Sequence[str] | None = None,
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
@@ -83,6 +84,9 @@ class Sandbox:
             gpu: GPU request passed through to Modal.
             region: Region preference passed through to Modal.
             block_network: Whether to block outbound network access.
+            outbound_domain_allowlist: Domains that sandbox processes may
+                connect to. Requests outside the allowlist are blocked by
+                Modal infrastructure.
             max_output_bytes: Maximum captured bytes per output stream. Use
                 `None` for no SDK truncation.
             encrypted_ports: Ports to expose as HTTPS Modal tunnels.
@@ -95,6 +99,7 @@ class Sandbox:
         """
         resolved_image = _resolve_runtime_image(runtime, image)
         normalized_volumes = _normalize_volumes(volumes)
+        normalized_domain_allowlist = _normalize_domain_allowlist(outbound_domain_allowlist)
         _validate_volume_mounts(normalized_volumes)
 
         config = SandboxConfig(
@@ -112,6 +117,7 @@ class Sandbox:
             gpu=gpu,
             region=region,
             block_network=block_network,
+            outbound_domain_allowlist=normalized_domain_allowlist,
             max_output_bytes=max_output_bytes,
             encrypted_ports=tuple(encrypted_ports or ()),
             unencrypted_ports=tuple(unencrypted_ports or ()),
@@ -182,6 +188,7 @@ class Sandbox:
         gpu: str | None = None,
         region: str | list[str] | None = None,
         block_network: bool = False,
+        outbound_domain_allowlist: Sequence[str] | None = None,
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
@@ -213,6 +220,7 @@ class Sandbox:
             gpu=gpu,
             region=region,
             block_network=block_network,
+            outbound_domain_allowlist=outbound_domain_allowlist,
             max_output_bytes=max_output_bytes,
             encrypted_ports=encrypted_ports,
             unencrypted_ports=unencrypted_ports,
@@ -523,6 +531,32 @@ def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[Sandbox
         if not isinstance(volume, SandboxVolume):
             raise TypeError("volumes must contain SandboxVolume instances.")
     return normalized
+
+
+def _normalize_domain_allowlist(domains: Sequence[str] | None) -> tuple[str, ...]:
+    """Normalize optional outbound domain allowlist values.
+
+    Args:
+        domains: Optional sequence of domain names.
+
+    Returns:
+        Tuple of stripped domain names.
+
+    Raises:
+        TypeError: If any item is not a string.
+        SandboxConfigurationError: If any item is empty.
+    """
+    if domains is None:
+        return ()
+    normalized: list[str] = []
+    for domain in domains:
+        if not isinstance(domain, str):
+            raise TypeError("outbound_domain_allowlist must contain strings.")
+        value = domain.strip()
+        if not value:
+            raise SandboxConfigurationError("outbound_domain_allowlist values must not be empty.")
+        normalized.append(value)
+    return tuple(normalized)
 
 
 def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:

@@ -44,6 +44,30 @@ npx skills find modal
 To use a project skill manually, point the agent at the relevant `SKILL.md` and
 ask it to follow that workflow.
 
+## Modal's Upstream Skill
+
+Modal SDK 1.5.0 also ships a separate `modal skills` CLI for installing
+Modal's own foundational agent skill. It is a useful companion for general
+Modal API guidance, while the `modal-sandbox-*` skills above remain the source
+of truth for this package's boundaries and tests.
+
+Use safe discovery first:
+
+```bash
+uv run modal skills show
+```
+
+Then install or update it if you want that Modal-owned context in the project:
+
+```bash
+uv run modal skills install --yes
+uv run modal skills update --yes
+```
+
+Review generated files before committing them. Modal's installed skill is
+named `modal` and is expected to install under `.agents/skills/modal` for
+project installs. It is developer context, not runtime package code.
+
 ## Recommended Companion MCPs
 
 - **Context7**: use for up-to-date, version-specific library documentation.

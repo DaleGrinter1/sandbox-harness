@@ -5,6 +5,8 @@
 - Discovery commands do not create Modal resources.
 - Live Modal tests require `MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1`.
 - Credentials are inspected only for presence/status in `sandbox doctor`.
+- Outbound sandbox network access can be restricted with SDK
+  `outbound_domain_allowlist` or CLI `--allow-domain`.
 
 ## Path Safety
 

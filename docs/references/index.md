@@ -7,6 +7,7 @@ Reference docs are stable operational notes and migrated repo docs.
 - [CLI Workflows](cli.md)
 - [Development](development.md)
 - [Modal Setup](modal-setup.md)
+- [Modal Skills](modal-skills.md)
 - [Agent And MCP Notes](agents.md)
 
 ## External Source Material

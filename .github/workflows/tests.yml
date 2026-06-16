@@ -39,3 +39,6 @@ jobs:
 
       - name: Check CLI help
         run: uv run sandbox --help
+
+      - name: Check CLI schema
+        run: uv run sandbox schema

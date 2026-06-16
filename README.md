@@ -51,6 +51,17 @@ If your shell cannot find the `modal` command, use:
 uv run python -m modal setup
 ```
 
+Optional agent context from Modal itself is available through Modal SDK 1.5's
+skills CLI:
+
+```bash
+uv run modal skills show
+uv run modal skills install --yes
+```
+
+This installs Modal's upstream agent skill for general Modal guidance. The
+repo-local `modal-sandbox-*` skills remain development helpers for this package.
+
 Run the beginner quickstart in a short-lived Modal Sandbox:
 
 ```bash
@@ -144,6 +155,17 @@ with Sandbox.create(
     print(sb.run("python --version").stdout)
 ```
 
+Restrict sandbox outbound network access to specific domains when running
+agentic or CI workflows that should not reach arbitrary hosts:
+
+```python
+with Sandbox.create(
+    image=Images.PY313,
+    outbound_domain_allowlist=["api.openai.com", "github.com"],
+) as sb:
+    print(sb.run("python -c 'print(123)'").stdout)
+```
+
 The same volume primitive is available from its focused module:
 
 ```python
@@ -207,6 +229,12 @@ Mount an additional Modal volume:
 
 ```bash
 uv run sandbox --volume cache-volume:/cache run "ls /cache"
+```
+
+Restrict outbound sandbox network access to specific domains:
+
+```bash
+uv run sandbox --allow-domain api.openai.com --allow-domain github.com run "python app.py"
 ```
 
 Create a reusable sandbox for a longer workflow:

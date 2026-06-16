@@ -125,7 +125,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "creates_sandbox": True,
         "arguments": {},
         "options": {
-            "global creation options": "Supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, resources, ports, and timeout flags."
+            "global creation options": "Supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, --allow-domain, resources, ports, and timeout flags."
         },
         "output": {
             "sandbox_id": "string",
@@ -288,7 +288,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "arguments": {},
         "options": {
             "--run": "Create a short-lived Modal Sandbox and run the quickstart Python command.",
-            "global creation options": "With --run, supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, resources, ports, and timeout flags.",
+            "global creation options": "With --run, supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, --allow-domain, resources, ports, and timeout flags.",
         },
         "output": {
             "creates_modal_resources": "boolean",
@@ -363,25 +363,28 @@ def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
     """Create a sandbox from parsed CLI flags."""
     effective_sandbox_id = cast(str | None, args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id)
-    return Sandbox.create(
-        app_name=args.app_name,
-        workspace=args.workspace,
-        image=_resolve_cli_image(args.image),
-        runtime=args.runtime,
-        volumes=_volumes_from_args(args),
-        env=_parse_env(args.env) if args.env else None,
-        command_timeout=args.timeout,
-        sandbox_timeout=args.sandbox_timeout,
-        cpu=args.cpu,
-        memory=args.memory,
-        gpu=args.gpu,
-        region=args.region,
-        block_network=args.block_network,
-        max_output_bytes=args.max_output_bytes,
-        encrypted_ports=tuple(args.encrypted_port),
-        unencrypted_ports=tuple(args.unencrypted_port),
-        sandbox_id=effective_sandbox_id,
-    )
+    create_kwargs: dict[str, object] = {
+        "app_name": args.app_name,
+        "workspace": args.workspace,
+        "image": _resolve_cli_image(args.image),
+        "runtime": args.runtime,
+        "volumes": _volumes_from_args(args),
+        "env": _parse_env(args.env) if args.env else None,
+        "command_timeout": args.timeout,
+        "sandbox_timeout": args.sandbox_timeout,
+        "cpu": args.cpu,
+        "memory": args.memory,
+        "gpu": args.gpu,
+        "region": args.region,
+        "block_network": args.block_network,
+        "max_output_bytes": args.max_output_bytes,
+        "encrypted_ports": tuple(args.encrypted_port),
+        "unencrypted_ports": tuple(args.unencrypted_port),
+        "sandbox_id": effective_sandbox_id,
+    }
+    if args.allow_domain:
+        create_kwargs["outbound_domain_allowlist"] = tuple(args.allow_domain)
+    return Sandbox.create(**cast(Any, create_kwargs))
 
 
 def _print_json(payload: Any, *, file: Any = None) -> None:
@@ -653,6 +656,7 @@ def _schema_payload() -> dict[str, object]:
             "--gpu": "GPU request passed through to Modal.",
             "--region": "Region preference passed through to Modal.",
             "--block-network": "Block outbound network access from the sandbox.",
+            "--allow-domain DOMAIN": "Allow sandbox outbound network access to a domain. Repeatable.",
             "--sandbox-id": "Attach to an existing Modal sandbox instead of creating one.",
             "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760.",
             "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
@@ -687,6 +691,7 @@ def _schema_payload() -> dict[str, object]:
             "attached_sandboxes_close_behavior": "detach",
             "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
             "volume_mounts": "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths.",
+            "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
         },
         "auth": {
             "requires_modal_credentials": True,
@@ -829,6 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gpu")
     parser.add_argument("--region")
     parser.add_argument("--block-network", action="store_true")
+    parser.add_argument("--allow-domain", action="append", default=[], metavar="DOMAIN")
     parser.add_argument("--sandbox-id")
     parser.add_argument("--max-output-bytes", type=_positive_int, default=10 * 1024 * 1024)
     parser.add_argument("--encrypted-port", type=_positive_int, action="append", default=[], metavar="PORT")
