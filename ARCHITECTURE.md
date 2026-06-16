@@ -31,8 +31,5 @@
 ## Validation Commands
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run pyright
-./scripts/execplan/check.sh
+./scripts/dev/check.sh
 ```

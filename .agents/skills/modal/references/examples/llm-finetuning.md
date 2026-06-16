@@ -108,8 +108,6 @@ longer than a couple hundred steps (with our batch size of 128) quickly led to
 overfitting. Admittedly, we haven't thoroughly evaluated the hyperparameter
 space yet — do reach out to us if you're interested in collaborating on this!
 
-![train-loss](../../assets/docs/train-loss.png)
-
 To try this step yourself, run:
 
 ```bash

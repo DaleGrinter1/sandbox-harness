@@ -19,8 +19,6 @@ and [Web Functions](https://modal.com/docs/guide/webhooks) for serving.
 
 And with some light customization, you can use it to generate images of your pet!
 
-![Gradio.app image generation interface](./gradio-image-generate.png)
-
 You can find a video walkthrough of this example on the Modal YouTube channel
 [here](https://www.youtube.com/watch?v=df-8fiByXMI).
 

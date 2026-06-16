@@ -45,8 +45,6 @@ Navigate to the Slack channel and `/invite` the Modal app so that the app can po
 
 Navigate to the Slack channel you want to add the Modal app to and click on the channel header. On the integrations tab you can add the Modal app.
 
-![Add Modal app to Slack channel](../../assets/docs/slack-add-modal-app.jpg)
-
 ### Step 4: Use `/modal link` to link the Slack channel to your Modal Workspace
 
 You'll be prompted to select the Workspace you want to link to the Slack channel. You can always unlink the Slack channel by visiting the *Slack Notifications* section on your [settings](/settings/slack-notifications) page in your Modal Workspace.

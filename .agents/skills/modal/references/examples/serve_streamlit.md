@@ -2,8 +2,6 @@
 
 This example shows you how to run a Streamlit app with `modal serve`, and then deploy it as a serverless web app.
 
-![example streamlit app](./streamlit.png)
-
 This example is structured as two files:
 
 1. This module, which defines the Modal objects (name the script `serve_streamlit.py` locally).

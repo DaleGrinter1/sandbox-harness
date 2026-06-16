@@ -16,16 +16,13 @@
 ## Validation
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run pyright
-./scripts/execplan/check.sh
+./scripts/dev/check.sh
 ```
 
 Live Modal validation is opt-in:
 
 ```bash
-MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
+MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
 ```
 
 The default fake-provider tests verify CLI shape, lifecycle routing, volume

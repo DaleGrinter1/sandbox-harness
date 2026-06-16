@@ -52,8 +52,6 @@ You can either send an email invite or share an invite link. Both existing Modal
 users and non-existing users can use the links to join your Workspace. If they
 are a new user a Modal account will be created for them.
 
-![invite member section](../../assets/screenshots/invite-member.png)
-
 ## Create a token for a Workspace
 
 To interact with a Workspace's resources programmatically, you need to add an

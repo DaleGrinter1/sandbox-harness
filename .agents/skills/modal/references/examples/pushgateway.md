@@ -6,8 +6,6 @@ scraping-based Prometheus setup. Instead, we'll use a [Prometheus Pushgateway](h
 to collect and store metrics from our Modal container. We can run the Pushgateway in Modal
 as a separate process and have our application push metrics to it.
 
-![Prometheus Pushgateway diagram](./pushgateway_diagram.png)
-
 ## Install Prometheus Pushgateway
 
 Since the official Prometheus pushgateway image does not have Python installed, we'll
@@ -171,5 +169,3 @@ and you may need to configure authentication.
 Once you've added the job to your Prometheus configuration, Prometheus will start scraping metrics
 from the Pushgateway. You can then use Grafana or another visualization tool to create dashboards
 and alerts based on these metrics!
-
-![Grafana example](./pushgateway_grafana.png)

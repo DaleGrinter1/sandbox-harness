@@ -39,17 +39,11 @@ uv run pytest tests/test_sandbox.py tests/test_provider_modal.py
 Before finishing package changes, run:
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-uv build
-uv run sandbox --help
-uv run sandbox schema
+./scripts/dev/check.sh
 ```
 
 Run live tests only when explicitly requested:
 
 ```bash
-MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
+MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
 ```

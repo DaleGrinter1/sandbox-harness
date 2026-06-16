@@ -180,9 +180,7 @@ Parquet file paths. Then, we call `aggregate_data()` with `map` on that list. Th
 also read from our S3 bucket. So one function writes files to S3 and the other
 reads files from S3 in; both run across many files in parallel.
 
-Finally, we call `plot` to generate the following figure:
-
-![Number of NYC yellow taxi trips by weekday, 2018-2023](./nyc_yellow_taxi_trips_s3_mount.png)
+Finally, we call `plot` to generate a weekday trip-count figure.
 
 This program should run in less than 30 seconds.
 

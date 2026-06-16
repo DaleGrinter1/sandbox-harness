@@ -91,7 +91,7 @@ uv run sandbox --image py313 start
 Live tests are opt-in:
 
 ```bash
-MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 uv run pytest tests/test_modal_live.py
+MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
 ```
 
 Use your normal local Modal authentication setup when live commands are needed.

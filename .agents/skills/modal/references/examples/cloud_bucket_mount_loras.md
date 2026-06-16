@@ -5,9 +5,7 @@ We will download a bunch of LoRA adapters from the [HuggingFace Hub](https://hug
 then read from that bucket, on the fly, when doing inference.
 
 By default, we use the [IKEA instructions LoRA](https://huggingface.co/ostris/ikea-instructions-lora-sdxl) as an example,
-which produces the following image when prompted to generate "IKEA instructions for building a GPU rig for deep learning":
-
-![IKEA instructions for building a GPU rig for deep learning](./ikea-instructions-for-building-a-gpu-rig-for-deep-learning.png)
+which produces instruction-sheet-style images when prompted to generate "IKEA instructions for building a GPU rig for deep learning".
 
 By the end of this example, we've deployed a "playground" app where anyone with a browser can try
 out these custom models. That's the power of Modal: custom, autoscaling AI applications, deployed in seconds.

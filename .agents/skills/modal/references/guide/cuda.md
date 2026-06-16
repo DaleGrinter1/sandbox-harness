@@ -27,8 +27,6 @@ they are referring not to a library, but to a
 Your application code (and its dependencies) can interact
 with the stack at different levels.
 
-![The CUDA stack](../../assets/docs/cuda-stack-diagram.png)
-
 This leads to a lot of confusion. To help clear that up, the following sections explain each component in detail.
 
 ### Level 0: Kernel-mode driver components
