@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from importlib import metadata
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
@@ -100,12 +101,12 @@ GOLDEN_WORKFLOWS = [
         "purpose": "Reuse one live sandbox for iterative work, then terminate it.",
         "creates_modal_resources": True,
         "commands": [
-            "sandbox --image py313 start",
-            'sandbox --sandbox-id <sandbox_id> write app.py --content "print(123)"',
-            'sandbox --sandbox-id <sandbox_id> run "python app.py"',
-            "sandbox stop <sandbox_id>",
+            "sandbox --image py313 --name agent-workspace start",
+            'sandbox --sandbox-name agent-workspace write app.py --content "print(123)"',
+            'sandbox --sandbox-name agent-workspace run "python app.py"',
+            "sandbox --sandbox-name agent-workspace stop",
         ],
-        "success_signal": "start returns sandbox_id and stop returns status terminated.",
+        "success_signal": "start returns sandbox_id and sandbox_name; stop returns status terminated.",
     },
 ]
 
@@ -127,7 +128,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "creates_sandbox": True,
         "arguments": {},
         "options": {
-            "global creation options": "Supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, --allow-domain, resources, ports, and timeout flags."
+            "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, and timeout flags."
         },
         "output": {
             "sandbox_id": "string",
@@ -137,14 +138,14 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "use_command": "string",
             "stop_command": "string",
         },
-        "example": "sandbox --image python:3.13-slim start",
+        "example": "sandbox --image python:3.13-slim --name agent-workspace start",
     },
     "stop": {
-        "summary": "Terminate a running Modal sandbox by ID.",
+        "summary": "Terminate a running Modal sandbox by ID or name.",
         "creates_sandbox": False,
         "arguments": {"sandbox_id": "Modal sandbox object ID. Can also be passed with --sandbox-id."},
-        "options": {},
-        "output": {"sandbox_id": "string", "status": "terminated"},
+        "options": {"global --sandbox-name": "Terminate a running named sandbox."},
+        "output": {"sandbox_id": "string|null", "sandbox_name": "string|null", "status": "terminated"},
         "example": "sandbox stop sb-abc123",
     },
     "run": {
@@ -152,7 +153,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "creates_sandbox": True,
         "arguments": {"command": "Shell command string to run."},
         "options": {
-            "--cwd": "Working directory inside the sandbox.",
+            "--cwd": "Working directory inside the sandbox. Relative paths resolve inside the workspace.",
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
             "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
         },
@@ -167,7 +168,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
             "args": "Arguments passed to the executable without shell parsing.",
         },
         "options": {
-            "--cwd": "Working directory inside the sandbox.",
+            "--cwd": "Working directory inside the sandbox. Relative paths resolve inside the workspace.",
             "--env KEY=VALUE": "Per-command environment variable. Repeatable.",
             "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
             "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
@@ -245,7 +246,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "summary": "Print the public URL for a declared sandbox port.",
         "creates_sandbox": True,
         "arguments": {"port": "Port declared with --encrypted-port or --unencrypted-port at sandbox creation."},
-        "options": {"requires --sandbox-id": "Attach to a sandbox created with a declared port."},
+        "options": {"requires --sandbox-id or --sandbox-name": "Attach to a sandbox created with a declared port."},
         "output": {"port": "integer", "url": "string"},
         "example": "sandbox --sandbox-id sb-abc123 domain 3000",
     },
@@ -290,7 +291,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "arguments": {},
         "options": {
             "--run": "Create a short-lived Modal Sandbox and run the quickstart Python command.",
-            "global creation options": "With --run, supports --image, --runtime, --workspace, --workspace-volume, --volume, --env, --allow-domain, resources, ports, and timeout flags.",
+            "global creation options": "With --run, supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, and timeout flags.",
         },
         "output": {
             "creates_modal_resources": "boolean",
@@ -378,6 +379,66 @@ def _non_empty_value(value: str) -> str:
     return normalized
 
 
+def _sandbox_name(value: str) -> str:
+    normalized = _non_empty_value(value)
+    if len(normalized) > 63:
+        raise argparse.ArgumentTypeError("sandbox name must be shorter than 64 characters")
+    if not all(character.isalnum() or character in ".-_" for character in normalized):
+        raise argparse.ArgumentTypeError(
+            "sandbox name may only contain letters, numbers, dashes, periods, and underscores"
+        )
+    return normalized
+
+
+def _parse_tag(value: str) -> tuple[str, str]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("--tag values must use KEY=VALUE")
+    key, tag_value = value.split("=", 1)
+    normalized_key = key.strip()
+    if not normalized_key:
+        raise argparse.ArgumentTypeError("--tag keys must not be empty")
+    return normalized_key, tag_value
+
+
+def _domain_allowlist_value(value: str) -> str:
+    normalized = _non_empty_value(value)
+    if any(character.isspace() for character in normalized):
+        raise argparse.ArgumentTypeError("value must not contain whitespace")
+    if any(fragment in normalized for fragment in ("://", "/", "\\", ":", "@")):
+        raise argparse.ArgumentTypeError("value must be a hostname, not a URL")
+
+    wildcard = normalized.startswith("*.")
+    hostname = normalized[2:] if wildcard else normalized
+    if not hostname or len(hostname) > 253 or hostname.startswith(".") or hostname.endswith(".") or ".." in hostname:
+        raise argparse.ArgumentTypeError("value must be a valid hostname")
+    try:
+        ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        raise argparse.ArgumentTypeError("value must be a domain name; use --allow-cidr for IP ranges")
+
+    for label in hostname.split("."):
+        if not label or len(label) > 63:
+            raise argparse.ArgumentTypeError("value must be a valid hostname")
+        if label.startswith("-") or label.endswith("-"):
+            raise argparse.ArgumentTypeError("value must be a valid hostname")
+        if not all(character.isalnum() or character == "-" for character in label):
+            raise argparse.ArgumentTypeError("value must be a valid hostname")
+    return normalized
+
+
+def _cidr_allowlist_value(value: str) -> str:
+    normalized = _non_empty_value(value)
+    if "/" not in normalized:
+        raise argparse.ArgumentTypeError("value must be a CIDR range")
+    try:
+        ip_network(normalized, strict=False)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a valid CIDR range") from exc
+    return normalized
+
+
 def _parse_volume(value: str) -> SandboxVolume:
     if ":" not in value:
         raise argparse.ArgumentTypeError("--volume values must use NAME:/absolute/path")
@@ -405,6 +466,30 @@ def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
     """Create a sandbox from parsed CLI flags."""
     effective_sandbox_id = cast(str | None, args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id)
+    if effective_sandbox_id is not None and args.sandbox_name:
+        raise argparse.ArgumentTypeError("--sandbox-id cannot be combined with --sandbox-name")
+    if effective_sandbox_id is not None:
+        return Sandbox.create(
+            app_name=args.app_name,
+            workspace=args.workspace,
+            command_timeout=args.timeout,
+            sandbox_timeout=args.sandbox_timeout,
+            max_output_bytes=args.max_output_bytes,
+            sandbox_id=effective_sandbox_id,
+        )
+    if args.sandbox_name:
+        return Sandbox.from_name(
+            args.sandbox_name,
+            app_name=args.app_name,
+            workspace=args.workspace,
+            command_timeout=args.timeout,
+            sandbox_timeout=args.sandbox_timeout,
+            max_output_bytes=args.max_output_bytes,
+        )
+    if args.block_network and (args.allow_domain or args.allow_cidr or args.allow_inbound_cidr):
+        raise argparse.ArgumentTypeError(
+            "--block-network cannot be combined with --allow-domain, --allow-cidr, or --allow-inbound-cidr"
+        )
     create_kwargs: dict[str, object] = {
         "app_name": args.app_name,
         "workspace": args.workspace,
@@ -422,10 +507,18 @@ def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | obj
         "max_output_bytes": args.max_output_bytes,
         "encrypted_ports": tuple(args.encrypted_port),
         "unencrypted_ports": tuple(args.unencrypted_port),
-        "sandbox_id": effective_sandbox_id,
+        "sandbox_id": None,
     }
+    if args.name:
+        create_kwargs["name"] = args.name
+    if args.tag:
+        create_kwargs["tags"] = dict(args.tag)
     if args.allow_domain:
         create_kwargs["outbound_domain_allowlist"] = tuple(args.allow_domain)
+    if args.allow_cidr:
+        create_kwargs["outbound_cidr_allowlist"] = tuple(args.allow_cidr)
+    if args.allow_inbound_cidr:
+        create_kwargs["inbound_cidr_allowlist"] = tuple(args.allow_inbound_cidr)
     return Sandbox.create(**cast(Any, create_kwargs))
 
 
@@ -512,14 +605,22 @@ def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 def _preflight_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     """Reject invalid lifecycle combinations before creating Modal resources."""
+    if args.sandbox_id and args.sandbox_name:
+        parser.error("--sandbox-id cannot be used with --sandbox-name")
+    if args.name and args.sandbox_name:
+        parser.error("--name cannot be used with --sandbox-name")
+    if getattr(args, "target_sandbox_id", None) and args.sandbox_name:
+        parser.error("sandbox id argument cannot be used with --sandbox-name")
     if args.command_name == "snapshot" and not args.workspace_volume:
         parser.error("snapshot requires --workspace-volume")
-    if args.command_name == "domain" and not args.sandbox_id:
-        parser.error("domain requires --sandbox-id from a started sandbox")
-    if args.command_name == "quickstart" and args.run and args.sandbox_id:
-        parser.error("--sandbox-id cannot be used with quickstart --run")
+    if args.command_name == "domain" and not (args.sandbox_id or args.sandbox_name):
+        parser.error("domain requires --sandbox-id or --sandbox-name from a started sandbox")
+    if args.command_name == "quickstart" and args.run and (args.sandbox_id or args.sandbox_name):
+        parser.error("--sandbox-id and --sandbox-name cannot be used with quickstart --run")
     if args.command_name == "start" and args.sandbox_id:
         parser.error("--sandbox-id cannot be used with start")
+    if args.command_name == "start" and args.sandbox_name:
+        parser.error("--sandbox-name cannot be used with start")
 
 
 def _start_payload(sandbox: Sandbox) -> dict[str, object]:
@@ -537,14 +638,23 @@ def _start_payload(sandbox: Sandbox) -> dict[str, object]:
     sandbox_id = sandbox.sandbox_id
     if not sandbox_id:
         raise RuntimeError("Modal did not return a sandbox id.")
-    return {
+    payload = {
         "sandbox_id": sandbox_id,
         "status": "started",
         "workspace": sandbox.config.workspace,
         "sandbox_timeout": sandbox.config.sandbox_timeout,
-        "use_command": f'sandbox --sandbox-id {sandbox_id} run "python --version"',
-        "stop_command": f"sandbox stop {sandbox_id}",
+        "use_command": (
+            f'sandbox --sandbox-name {sandbox.config.name} run "python --version"'
+            if sandbox.config.name
+            else f'sandbox --sandbox-id {sandbox_id} run "python --version"'
+        ),
+        "stop_command": f"sandbox --sandbox-name {sandbox.config.name} stop"
+        if sandbox.config.name
+        else f"sandbox stop {sandbox_id}",
     }
+    if sandbox.config.name:
+        payload["sandbox_name"] = sandbox.config.name
+    return payload
 
 
 def _command_exit_code(result: Any) -> int:
@@ -697,6 +807,8 @@ def _schema_payload() -> dict[str, object]:
         "default_output": "json",
         "global_options": {
             "--app-name": "Modal app name used for sandbox creation.",
+            "--name": "Name assigned to a newly created sandbox. Unique within the app while running.",
+            "--tag KEY=VALUE": "Tag assigned to a newly created sandbox. Repeatable.",
             "--workspace": "Default sandbox directory for relative paths.",
             "--image": "Registry image tag or supported alias passed to Modal.",
             "--runtime": "Vercel-style runtime alias. Supported values: python3.13, node24, node22.",
@@ -711,7 +823,10 @@ def _schema_payload() -> dict[str, object]:
             "--region": "Region preference passed through to Modal.",
             "--block-network": "Block outbound network access from the sandbox.",
             "--allow-domain DOMAIN": "Allow sandbox outbound network access to a domain. Repeatable.",
-            "--sandbox-id": "Attach to an existing Modal sandbox instead of creating one.",
+            "--allow-cidr CIDR": "Allow sandbox outbound network access to a CIDR range. Repeatable.",
+            "--allow-inbound-cidr CIDR": "Allow inbound tunnel/connect-token access from a CIDR range. Repeatable.",
+            "--sandbox-id": "Attach to an existing Modal sandbox by ID instead of creating one.",
+            "--sandbox-name": "Attach to an existing running Modal sandbox by name instead of creating one.",
             "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
             "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
             "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
@@ -741,11 +856,13 @@ def _schema_payload() -> dict[str, object]:
                 "snapshot",
             ],
             "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
+            "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
             "created_sandboxes_close_behavior": "terminate",
             "attached_sandboxes_close_behavior": "detach",
             "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
             "volume_mounts": "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths.",
             "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
+            "cidr_allowlists": "Use --allow-cidr CIDR for outbound IP ranges and --allow-inbound-cidr CIDR for inbound tunnel/connect-token ranges.",
             "preflight_validation": "Invalid lifecycle combinations and global configuration are rejected before sandbox creation.",
         },
         "auth": {
@@ -874,6 +991,8 @@ def build_parser() -> argparse.ArgumentParser:
     # These flags intentionally mirror the ergonomic SDK creation options so
     # shell usage and Python usage teach the same mental model.
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
+    parser.add_argument("--name", type=_sandbox_name, help="Name for a newly created sandbox.")
+    parser.add_argument("--tag", type=_parse_tag, action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--workspace", type=_absolute_sandbox_path, default="/workspace")
     parser.add_argument("--image", help="Registry image tag or alias such as py313, py312, py311, or ubuntu24.")
     parser.add_argument(
@@ -889,8 +1008,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gpu")
     parser.add_argument("--region")
     parser.add_argument("--block-network", action="store_true")
-    parser.add_argument("--allow-domain", type=_non_empty_value, action="append", default=[], metavar="DOMAIN")
+    parser.add_argument("--allow-domain", type=_domain_allowlist_value, action="append", default=[], metavar="DOMAIN")
+    parser.add_argument("--allow-cidr", type=_cidr_allowlist_value, action="append", default=[], metavar="CIDR")
+    parser.add_argument("--allow-inbound-cidr", type=_cidr_allowlist_value, action="append", default=[], metavar="CIDR")
     parser.add_argument("--sandbox-id")
+    parser.add_argument("--sandbox-name", type=_sandbox_name)
     parser.add_argument("--max-output-bytes", type=_non_negative_int, default=10 * 1024 * 1024)
     parser.add_argument("--encrypted-port", type=_port, action="append", default=[], metavar="PORT")
     parser.add_argument("--unencrypted-port", type=_port, action="append", default=[], metavar="PORT")
@@ -904,7 +1026,9 @@ def build_parser() -> argparse.ArgumentParser:
     stop_parser.add_argument("target_sandbox_id", nargs="?")
 
     run_parser = subparsers.add_parser("run", help="Run a command inside the sandbox.")
-    run_parser.add_argument("--cwd", help="Working directory inside the sandbox.")
+    run_parser.add_argument(
+        "--cwd", help="Working directory inside the sandbox. Relative paths resolve inside the workspace."
+    )
     run_parser.add_argument(
         "--use-command-exit-code",
         action="store_true",
@@ -913,7 +1037,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("command")
 
     run_command_parser = subparsers.add_parser("run-command", help="Run an argv-style command inside the sandbox.")
-    run_command_parser.add_argument("--cwd", help="Working directory inside the sandbox.")
+    run_command_parser.add_argument(
+        "--cwd", help="Working directory inside the sandbox. Relative paths resolve inside the workspace."
+    )
     run_command_parser.add_argument("--env", action="append", default=[], dest="command_env", metavar="KEY=VALUE")
     run_command_parser.add_argument(
         "--use-command-exit-code",
@@ -1026,19 +1152,35 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command_name == "stop":
-            sandbox_id = _require_sandbox_id(args, parser)
-            sandbox = Sandbox.from_id(
-                sandbox_id,
-                app_name=args.app_name,
-                workspace=args.workspace,
-                command_timeout=args.timeout,
-                sandbox_timeout=args.sandbox_timeout,
-                max_output_bytes=args.max_output_bytes,
-                ensure_workspace=False,
-            )
+            sandbox_name = args.sandbox_name
+            if sandbox_name:
+                sandbox = Sandbox.from_name(
+                    sandbox_name,
+                    app_name=args.app_name,
+                    workspace=args.workspace,
+                    command_timeout=args.timeout,
+                    sandbox_timeout=args.sandbox_timeout,
+                    max_output_bytes=args.max_output_bytes,
+                    ensure_workspace=False,
+                )
+                sandbox_id = sandbox.sandbox_id
+            else:
+                sandbox_id = _require_sandbox_id(args, parser)
+                sandbox = Sandbox.from_id(
+                    sandbox_id,
+                    app_name=args.app_name,
+                    workspace=args.workspace,
+                    command_timeout=args.timeout,
+                    sandbox_timeout=args.sandbox_timeout,
+                    max_output_bytes=args.max_output_bytes,
+                    ensure_workspace=False,
+                )
             sandbox.terminate(wait=True)
             sandbox = None
-            _print_json({"sandbox_id": sandbox_id, "status": "terminated"})
+            payload: dict[str, object] = {"sandbox_id": sandbox_id, "status": "terminated"}
+            if sandbox_name:
+                payload["sandbox_name"] = sandbox_name
+            _print_json(payload)
             return 0
 
         sandbox = _sandbox_from_args(args)

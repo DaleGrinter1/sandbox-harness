@@ -73,7 +73,7 @@ from sandbox import SandboxFile, SandboxVolume
 
 with Sandbox.create(runtime="python3.13") as sb:
     sb.write_files([
-        SandboxFile(path="main.py", content="print('hello')\n"),
+        SandboxFile(path="main.py", content="print('hello')\n", mode=0o644),
         {"path": "data.bin", "content": b"data"},
     ])
 ```
@@ -91,11 +91,11 @@ with Sandbox.create(runtime="node24", encrypted_ports=[3000]) as sb:
 Ports are backed by Modal tunnels. A port must be declared at creation time.
 
 For CLI workflows, declare the port when the sandbox is started and then attach
-to retrieve the domain:
+by ID or by name to retrieve the domain:
 
 ```bash
-uv run sandbox --runtime node24 --encrypted-port 3000 start
-uv run sandbox --sandbox-id sb-abc123 domain 3000
+uv run sandbox --runtime node24 --name agent-workspace --encrypted-port 3000 start
+uv run sandbox --sandbox-name agent-workspace domain 3000
 ```
 
 ## Volume-Backed Snapshots

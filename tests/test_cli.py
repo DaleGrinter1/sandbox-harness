@@ -13,6 +13,7 @@ from sandbox_cli import cli
 class FakeSandbox:
     create_calls: list[dict[str, object]] = []
     from_id_calls: list[dict[str, object]] = []
+    from_name_calls: list[dict[str, object]] = []
     instances: list[FakeSandbox] = []
     raise_auth_error = False
 
@@ -23,11 +24,15 @@ class FakeSandbox:
         sandbox = cls()
         sandbox_timeout = kwargs.get("sandbox_timeout", 300)
         max_output_bytes = kwargs.get("max_output_bytes")
+        sandbox_name = kwargs.get("name")
+        tags = kwargs.get("tags")
         volumes = kwargs.get("volumes", ())
         if not isinstance(volumes, tuple):
             volumes = ()
         volumes = cast(tuple[SandboxVolume, ...], volumes)
         sandbox.config = SandboxConfig(
+            name=sandbox_name if isinstance(sandbox_name, str) else None,
+            tags=cast(dict[str, str], tags) if isinstance(tags, dict) else None,
             workspace=str(kwargs.get("workspace", "/workspace")),
             sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
             max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
@@ -41,6 +46,23 @@ class FakeSandbox:
     def from_id(cls, sandbox_id: str, **kwargs: object) -> FakeSandbox:
         sandbox = cls(sandbox_id=sandbox_id)
         cls.from_id_calls.append({"sandbox_id": sandbox_id, **kwargs})
+        cls.instances.append(sandbox)
+        return sandbox
+
+    @classmethod
+    def from_name(cls, name: str, **kwargs: object) -> FakeSandbox:
+        sandbox = cls(sandbox_id=f"sb-{name}")
+        workspace = kwargs.get("workspace", "/workspace")
+        sandbox_timeout = kwargs.get("sandbox_timeout", 300)
+        max_output_bytes = kwargs.get("max_output_bytes")
+        sandbox.config = SandboxConfig(
+            app_name=str(kwargs.get("app_name", "modal-sandbox-sdk")),
+            name=name,
+            workspace=workspace if isinstance(workspace, str) else "/workspace",
+            sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
+            max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
+        )
+        cls.from_name_calls.append({"name": name, **kwargs})
         cls.instances.append(sandbox)
         return sandbox
 
@@ -283,6 +305,32 @@ def test_cli_create_accepts_runtime_and_declared_ports(monkeypatch, capsys) -> N
     assert FakeSandbox.create_calls[-1]["unencrypted_ports"] == (9229,)
 
 
+def test_cli_create_accepts_name_and_tags(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--name",
+            "agent-workspace",
+            "--tag",
+            "kind=frontend",
+            "--tag",
+            "owner=team",
+            "run",
+            "python -c 'print(123)'",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert FakeSandbox.create_calls[-1]["name"] == "agent-workspace"
+    assert FakeSandbox.create_calls[-1]["tags"] == {"kind": "frontend", "owner": "team"}
+
+
 def test_cli_create_accepts_outbound_domain_allowlist(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -304,6 +352,30 @@ def test_cli_create_accepts_outbound_domain_allowlist(monkeypatch, capsys) -> No
     assert exit_code == 0
     assert payload["stdout"] == "ok\n"
     assert FakeSandbox.create_calls[-1]["outbound_domain_allowlist"] == ("api.openai.com", "github.com")
+
+
+def test_cli_create_accepts_cidr_allowlists(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--allow-cidr",
+            "10.0.0.0/8",
+            "--allow-inbound-cidr",
+            "203.0.113.0/24",
+            "run",
+            "python -c 'print(123)'",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert FakeSandbox.create_calls[-1]["outbound_cidr_allowlist"] == ("10.0.0.0/8",)
+    assert FakeSandbox.create_calls[-1]["inbound_cidr_allowlist"] == ("203.0.113.0/24",)
 
 
 def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> None:
@@ -335,6 +407,16 @@ def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> 
         (["--cpu", "0", "run", "true"], "argument --cpu: value must be a positive number"),
         (["--memory", "0", "run", "true"], "argument --memory: value must be a positive integer"),
         (
+            ["--name", "bad name", "run", "true"],
+            "argument --name: sandbox name may only contain letters, numbers, dashes, periods, and underscores",
+        ),
+        (
+            ["--name", "a" * 64, "run", "true"],
+            "argument --name: sandbox name must be shorter than 64 characters",
+        ),
+        (["--tag", "missing-equals", "run", "true"], "argument --tag: --tag values must use KEY=VALUE"),
+        (["--tag", "=value", "run", "true"], "argument --tag: --tag keys must not be empty"),
+        (
             ["--max-output-bytes", "-1", "run", "true"],
             "argument --max-output-bytes: value must be a non-negative integer",
         ),
@@ -343,6 +425,27 @@ def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> 
             "argument --encrypted-port: port must be an integer between 1 and 65535",
         ),
         (["--allow-domain", "", "run", "true"], "argument --allow-domain: value must not be empty"),
+        (
+            ["--allow-domain", "https://api.openai.com", "run", "true"],
+            "argument --allow-domain: value must be a hostname, not a URL",
+        ),
+        (["--allow-cidr", "10.0.0.1", "run", "true"], "argument --allow-cidr: value must be a CIDR range"),
+        (
+            ["--allow-inbound-cidr", "not-a-cidr/24", "run", "true"],
+            "argument --allow-inbound-cidr: value must be a valid CIDR range",
+        ),
+        (
+            ["--block-network", "--allow-domain", "api.openai.com", "run", "true"],
+            "--block-network cannot be combined with --allow-domain, --allow-cidr, or --allow-inbound-cidr",
+        ),
+        (
+            ["--sandbox-id", "sb-123", "--sandbox-name", "agent-workspace", "run", "true"],
+            "--sandbox-id cannot be used with --sandbox-name",
+        ),
+        (
+            ["--name", "new-workspace", "--sandbox-name", "agent-workspace", "run", "true"],
+            "--name cannot be used with --sandbox-name",
+        ),
     ],
 )
 def test_cli_invalid_global_configuration_reports_argument_error_without_creating_sandbox(
@@ -419,6 +522,31 @@ def test_cli_run_command_can_return_command_exit_code(monkeypatch, capsys) -> No
     assert payload["exit_code"] == 7
 
 
+def test_cli_run_can_attach_to_named_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.from_name_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--sandbox-name", "agent-workspace", "run", "python --version"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.from_name_calls == [
+        {
+            "name": "agent-workspace",
+            "app_name": "modal-sandbox-sdk",
+            "workspace": "/workspace",
+            "command_timeout": 30,
+            "sandbox_timeout": 300,
+            "max_output_bytes": 10 * 1024 * 1024,
+        }
+    ]
+
+
 def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -428,6 +556,11 @@ def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
     assert cli.main(["--sandbox-id", "sb-123", "domain", "3000"]) == 0
     domain_payload = json.loads(capsys.readouterr().out)
     assert domain_payload == {"port": 3000, "url": "https://sandbox.example/3000"}
+
+    assert cli.main(["--sandbox-name", "agent-workspace", "domain", "3000"]) == 0
+    named_domain_payload = json.loads(capsys.readouterr().out)
+    assert named_domain_payload == {"port": 3000, "url": "https://sandbox.example/3000"}
+    assert FakeSandbox.from_name_calls[-1]["name"] == "agent-workspace"
 
     assert cli.main(["--workspace-volume", "workspace-volume", "snapshot"]) == 0
     snapshot_payload = json.loads(capsys.readouterr().out)
@@ -481,7 +614,7 @@ def test_cli_domain_without_sandbox_id_reports_json_argument_error_without_creat
     assert captured.out == ""
     assert payload["status"] == "error"
     assert payload["error"]["type"] == "argument_error"
-    assert payload["error"]["message"] == "domain requires --sandbox-id from a started sandbox"
+    assert payload["error"]["message"] == "domain requires --sandbox-id or --sandbox-name from a started sandbox"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -510,6 +643,29 @@ def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -
     assert not hasattr(FakeSandbox.instances[-1], "closed")
 
 
+def test_cli_start_can_create_named_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--name", "agent-workspace", "--image", "python:3.13-slim", "start"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {
+        "sandbox_id": "sb-fake",
+        "sandbox_name": "agent-workspace",
+        "sandbox_timeout": 300,
+        "status": "started",
+        "stop_command": "sandbox --sandbox-name agent-workspace stop",
+        "use_command": 'sandbox --sandbox-name agent-workspace run "python --version"',
+        "workspace": "/workspace",
+    }
+    assert FakeSandbox.create_calls[-1]["name"] == "agent-workspace"
+    assert FakeSandbox.instances[-1].detached is True
+
+
 def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.from_id_calls = []
@@ -536,6 +692,33 @@ def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeyp
     ]
     assert FakeSandbox.instances[-1].terminated is True
     assert not hasattr(FakeSandbox.instances[-1], "closed")
+
+
+def test_cli_stop_can_terminate_named_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.from_name_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--sandbox-name", "agent-workspace", "stop"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {"sandbox_id": "sb-agent-workspace", "sandbox_name": "agent-workspace", "status": "terminated"}
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.from_name_calls == [
+        {
+            "name": "agent-workspace",
+            "app_name": "modal-sandbox-sdk",
+            "workspace": "/workspace",
+            "command_timeout": 30,
+            "sandbox_timeout": 300,
+            "max_output_bytes": 10 * 1024 * 1024,
+            "ensure_workspace": False,
+        }
+    ]
+    assert FakeSandbox.instances[-1].terminated is True
 
 
 def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
@@ -682,11 +865,20 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["global_options"]["--allow-domain DOMAIN"] == (
         "Allow sandbox outbound network access to a domain. Repeatable."
     )
+    assert payload["global_options"]["--allow-cidr CIDR"] == (
+        "Allow sandbox outbound network access to a CIDR range. Repeatable."
+    )
+    assert payload["global_options"]["--allow-inbound-cidr CIDR"] == (
+        "Allow inbound tunnel/connect-token access from a CIDR range. Repeatable."
+    )
     assert payload["lifecycle"]["volume_mounts"] == (
         "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths."
     )
     assert payload["lifecycle"]["domain_allowlist"] == (
         "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains."
+    )
+    assert payload["lifecycle"]["cidr_allowlists"] == (
+        "Use --allow-cidr CIDR for outbound IP ranges and --allow-inbound-cidr CIDR for inbound tunnel/connect-token ranges."
     )
     assert payload["lifecycle"]["preflight_validation"] == (
         "Invalid lifecycle combinations and global configuration are rejected before sandbox creation."

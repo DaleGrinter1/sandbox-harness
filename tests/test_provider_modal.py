@@ -4,13 +4,17 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from sandbox.errors import ModalAuthenticationError, SandboxProviderError
-from sandbox.provider_modal import ModalSandboxProvider, sandbox_path
+from sandbox.errors import ModalAuthenticationError, SandboxNotFoundError, SandboxProviderError
+from sandbox.provider_modal import ModalSandboxProvider, sandbox_path, sandbox_workdir
 from sandbox.types import SandboxConfig
 from sandbox.volumes import SandboxVolume
 
 
 class FakeAuthError(Exception):
+    pass
+
+
+class FakeNotFoundError(Exception):
     pass
 
 
@@ -82,6 +86,8 @@ class FakeSandboxObject:
         self.stderr = ""
         self.terminated = False
         self.detached = False
+        self.terminate_calls = 0
+        self.detach_calls = 0
         self.tunnel_map: dict[int, object] = {3000: SimpleNamespace(url="https://sandbox.example")}
 
     def exec(self, *args: object, **kwargs: object) -> FakeProcess:
@@ -98,9 +104,11 @@ class FakeSandboxObject:
         return self.tunnel_map
 
     def terminate(self, *, wait: bool = True) -> None:
+        self.terminate_calls += 1
         self.terminated = wait
 
     def detach(self) -> None:
+        self.detach_calls += 1
         self.detached = True
 
 
@@ -142,8 +150,10 @@ class FakeModalSandbox:
     created_kwargs: dict[str, object] = {}
     created_sandbox: FakeSandboxObject | None = None
     attached_sandbox: FakeSandboxObject | None = None
+    attached_by_name: list[tuple[str, str]] = []
     raise_runtime_error_on_create = False
     raise_runtime_error_on_attach = False
+    raise_not_found_on_from_name = False
 
     @classmethod
     def create(cls, **kwargs: object) -> FakeSandboxObject:
@@ -162,13 +172,25 @@ class FakeModalSandbox:
         FakeModalSandbox.attached_sandbox = sandbox
         return sandbox
 
+    @staticmethod
+    def from_name(app_name: str, name: str) -> FakeSandboxObject:
+        if FakeModalSandbox.raise_not_found_on_from_name:
+            raise FakeNotFoundError("sandbox not found")
+        if FakeModalSandbox.raise_runtime_error_on_attach:
+            raise RuntimeError("attach failed")
+        sandbox = FakeSandboxObject()
+        sandbox.object_id = f"sb-{name}"
+        FakeModalSandbox.attached_by_name.append((app_name, name))
+        FakeModalSandbox.attached_sandbox = sandbox
+        return sandbox
+
 
 class FakeModal:
     App = FakeApp
     Image = FakeImage
     Volume = FakeVolume
     Sandbox = FakeModalSandbox
-    exception = SimpleNamespace(AuthError=FakeAuthError)
+    exception = SimpleNamespace(AuthError=FakeAuthError, NotFoundError=FakeNotFoundError)
 
 
 def use_fake_modal(monkeypatch) -> None:
@@ -178,8 +200,10 @@ def use_fake_modal(monkeypatch) -> None:
     FakeModalSandbox.created_kwargs = {}
     FakeModalSandbox.created_sandbox = None
     FakeModalSandbox.attached_sandbox = None
+    FakeModalSandbox.attached_by_name = []
     FakeModalSandbox.raise_runtime_error_on_create = False
     FakeModalSandbox.raise_runtime_error_on_attach = False
+    FakeModalSandbox.raise_not_found_on_from_name = False
     monkeypatch.setattr(ModalSandboxProvider, "_load_modal", staticmethod(lambda: FakeModal))
 
 
@@ -205,13 +229,17 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
                 SandboxVolume(volume="data-volume", mount_path="/data", create_if_missing=False),
             ),
             env={"A": "B"},
+            name="agent-workspace",
+            tags={"kind": "test", "owner": "sdk"},
             workdir="/workspace",
             cpu=2.0,
             memory=512,
             gpu="T4",
             region="us-east-1",
-            block_network=True,
+            block_network=False,
             outbound_domain_allowlist=("api.openai.com", "github.com"),
+            outbound_cidr_allowlist=("10.0.0.0/8",),
+            inbound_cidr_allowlist=("203.0.113.0/24",),
             encrypted_ports=(3000,),
             unencrypted_ports=(9229,),
         )
@@ -230,13 +258,17 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
         "/data": volumes["/data"],
     }
     assert kwargs["env"] == {"A": "B"}
+    assert kwargs["name"] == "agent-workspace"
+    assert kwargs["tags"] == {"kind": "test", "owner": "sdk"}
     assert kwargs["workdir"] == "/workspace"
     assert kwargs["cpu"] == 2.0
     assert kwargs["memory"] == 512
     assert kwargs["gpu"] == "T4"
     assert kwargs["region"] == "us-east-1"
-    assert kwargs["block_network"] is True
+    assert kwargs["block_network"] is False
     assert kwargs["outbound_domain_allowlist"] == ["api.openai.com", "github.com"]
+    assert kwargs["outbound_cidr_allowlist"] == ["10.0.0.0/8"]
+    assert kwargs["inbound_cidr_allowlist"] == ["203.0.113.0/24"]
     assert kwargs["encrypted_ports"] == [3000]
     assert kwargs["unencrypted_ports"] == [9229]
 
@@ -280,15 +312,64 @@ def test_from_id_wraps_provider_errors_with_sandbox_context(monkeypatch) -> None
         ModalSandboxProvider.from_id("sb-missing", SandboxConfig())
 
 
+def test_from_name_attaches_to_running_named_sandbox(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+
+    provider = ModalSandboxProvider.from_name(
+        "agent-workspace",
+        SandboxConfig(app_name="team-app", name="agent-workspace"),
+    )
+
+    assert provider.sandbox_id == "sb-agent-workspace"
+    assert FakeModalSandbox.attached_by_name == [("team-app", "agent-workspace")]
+    assert FakeModalSandbox.attached_sandbox is not None
+    assert FakeModalSandbox.attached_sandbox.filesystem.calls == [("mkdir", "/workspace", True)]
+
+
+def test_from_name_can_skip_workspace_creation(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+
+    ModalSandboxProvider.from_name(
+        "agent-workspace",
+        SandboxConfig(app_name="team-app", name="agent-workspace"),
+        ensure_workspace=False,
+    )
+
+    assert FakeModalSandbox.attached_sandbox is not None
+    assert FakeModalSandbox.attached_sandbox.filesystem.calls == []
+
+
+def test_from_name_translates_modal_not_found(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    FakeModalSandbox.raise_not_found_on_from_name = True
+
+    with pytest.raises(SandboxNotFoundError, match="No running Modal sandbox named"):
+        ModalSandboxProvider.from_name("missing", SandboxConfig(app_name="team-app", name="missing"))
+
+
+def test_from_name_wraps_non_not_found_provider_errors(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    FakeModalSandbox.raise_runtime_error_on_attach = True
+
+    with pytest.raises(SandboxProviderError, match="attaching to Modal sandbox named agent-workspace: attach failed"):
+        ModalSandboxProvider.from_name(
+            "agent-workspace",
+            SandboxConfig(app_name="team-app", name="agent-workspace"),
+        )
+
+
 def test_created_provider_terminates_owned_sandbox_on_close(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig())
 
     provider.close()
+    provider.close()
 
     assert FakeModalSandbox.created_sandbox is not None
     assert FakeModalSandbox.created_sandbox.terminated is True
     assert FakeModalSandbox.created_sandbox.detached is False
+    assert FakeModalSandbox.created_sandbox.terminate_calls == 1
+    assert FakeModalSandbox.created_sandbox.detach_calls == 0
 
 
 def test_attached_provider_detaches_without_terminating(monkeypatch) -> None:
@@ -296,10 +377,13 @@ def test_attached_provider_detaches_without_terminating(monkeypatch) -> None:
     provider = ModalSandboxProvider.from_id("sb-123", SandboxConfig())
 
     provider.close()
+    provider.close()
 
     assert FakeModalSandbox.attached_sandbox is not None
     assert FakeModalSandbox.attached_sandbox.terminated is False
     assert FakeModalSandbox.attached_sandbox.detached is True
+    assert FakeModalSandbox.attached_sandbox.terminate_calls == 0
+    assert FakeModalSandbox.attached_sandbox.detach_calls == 1
 
 
 def test_provider_exposes_sandbox_id_and_explicit_lifecycle_methods(monkeypatch) -> None:
@@ -337,6 +421,15 @@ def test_run_uses_shell_in_workspace_with_command_timeout(monkeypatch) -> None:
     assert provider._sandbox.exec_calls[-1] == (("sh", "-lc", "cd /workspace && echo ok"), {"timeout": 17})
 
 
+def test_run_resolves_relative_cwd_inside_workspace(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
+
+    provider.run("pwd", cwd="src")
+
+    assert provider._sandbox.exec_calls[-1] == (("sh", "-lc", "cd /workspace/src && pwd"), {"timeout": 17})
+
+
 def test_run_command_uses_argv_without_shell_wrapping(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
@@ -351,6 +444,18 @@ def test_run_command_uses_argv_without_shell_wrapping(monkeypatch) -> None:
     )
 
 
+def test_run_command_resolves_relative_cwd_inside_workspace(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
+
+    provider.run_command("python", ["-m", "compileall", "."], cwd="src")
+
+    assert provider._sandbox.exec_calls[-1] == (
+        ("python", "-m", "compileall", "."),
+        {"timeout": 17, "workdir": "/workspace/src", "env": None},
+    )
+
+
 def test_run_command_detached_returns_process_handle(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
@@ -361,8 +466,36 @@ def test_run_command_detached_returns_process_handle(monkeypatch) -> None:
     assert list(command.logs()) == ["ok\n"]
     assert provider._sandbox.exec_calls[-1] == (
         ("npm", "run", "dev"),
-        {"timeout": 17, "workdir": "/work", "env": {"A": "B"}, "pty": True},
+        {"timeout": None, "workdir": "/work", "env": {"A": "B"}, "pty": True},
     )
+
+
+def test_run_command_detached_uses_explicit_timeout_when_provided(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(command_timeout=17))
+
+    provider.run_command_detached("npm", ["run", "dev"], timeout=600)
+
+    assert provider._sandbox.exec_calls[-1] == (
+        ("npm", "run", "dev"),
+        {"timeout": 600, "workdir": "/workspace", "env": None, "pty": False},
+    )
+
+
+def test_command_cwd_rejects_relative_workspace_escapes_before_exec(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    with pytest.raises(ValueError, match="escape the workspace"):
+        provider.run("pwd", cwd="../outside")
+
+    with pytest.raises(ValueError, match="escape the workspace"):
+        provider.run_command("python", ["-V"], cwd="../outside")
+
+    with pytest.raises(ValueError, match="escape the workspace"):
+        provider.run_command_detached("npm", ["run", "dev"], cwd="../outside")
+
+    assert provider._sandbox.exec_calls == []
 
 
 def test_run_can_truncate_stdout_and_stderr(monkeypatch) -> None:
@@ -538,3 +671,13 @@ def test_sandbox_path_rejects_relative_workspace_escapes() -> None:
 
     with pytest.raises(ValueError, match="escape the workspace"):
         sandbox_path("notes/../../file.txt", "/workspace")
+
+
+def test_sandbox_workdir_resolves_relative_defaults_and_rejects_escapes() -> None:
+    assert sandbox_workdir(None, None, "/workspace") == "/workspace"
+    assert sandbox_workdir(None, "src", "/workspace") == "/workspace/src"
+    assert sandbox_workdir("pkg", "src", "/workspace") == "/workspace/pkg"
+    assert sandbox_workdir("/tmp", "src", "/workspace") == "/tmp"
+
+    with pytest.raises(ValueError, match="escape the workspace"):
+        sandbox_workdir("../tmp", None, "/workspace")

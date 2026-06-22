@@ -51,6 +51,7 @@ def test_public_imports_are_available() -> None:
     assert hasattr(sdk, "SandboxConfig")
     assert hasattr(sdk, "SandboxError")
     assert hasattr(sdk, "SandboxFile")
+    assert hasattr(sdk, "SandboxNotFoundError")
     assert hasattr(sdk, "SandboxProviderError")
     assert hasattr(sdk, "SandboxSnapshot")
     assert hasattr(sdk, "SandboxVolume")
@@ -60,6 +61,7 @@ def test_public_imports_are_available() -> None:
     assert sdk.ModalAuthenticationError is errors.ModalAuthenticationError
     assert sdk.SandboxConfigurationError is errors.SandboxConfigurationError
     assert sdk.SandboxError is errors.SandboxError
+    assert sdk.SandboxNotFoundError is errors.SandboxNotFoundError
     assert sdk.SandboxProviderError is errors.SandboxProviderError
     assert sdk.SandboxFile is files.SandboxFile
     assert sdk.SandboxVolume is volumes.SandboxVolume

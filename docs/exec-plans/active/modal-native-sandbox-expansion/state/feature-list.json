@@ -1,0 +1,67 @@
+{
+  "initiative": "modal-native-sandbox-expansion",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "phase-1-hardening",
+      "title": "Harden network policy, file modes, and close behavior",
+      "description": "Add local CIDR/domain validation, SandboxFile mode support, and idempotent provider close behavior.",
+      "priority": 1,
+      "passes": true,
+      "evidence": [
+        "SDK accepts outbound_cidr_allowlist and inbound_cidr_allowlist and rejects invalid network policy locally",
+        "SandboxFile.mode applies chmod through argv-style run_command after writes",
+        "ModalSandboxProvider.close is idempotent for owned and attached sandboxes",
+        "uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_cli.py passed: 110 passed",
+        "./scripts/dev/check.sh passed: 120 passed, 4 skipped"
+      ]
+    },
+    {
+      "id": "named-sandbox-lifecycle",
+      "title": "Add Modal-native named sandbox lifecycle helpers",
+      "description": "Support sandbox names, tags, from_name, and carefully scoped get_or_create behavior.",
+      "priority": 2,
+      "passes": true,
+      "evidence": [
+        "Sandbox.create accepts name and tags and forwards them to Modal Sandbox.create",
+        "Sandbox.from_name attaches by Modal sandbox name and translates Modal NotFoundError into SandboxNotFoundError",
+        "Sandbox.get_or_create creates only after SandboxNotFoundError and does not swallow other provider errors",
+        "CLI supports --name, --tag, --sandbox-name, named domain lookup, and named stop workflows",
+        "uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_cli.py tests/test_packaging.py passed: 138 passed",
+        "./scripts/dev/check.sh passed: 140 passed, 4 skipped"
+      ]
+    },
+    {
+      "id": "snapshot-api-clarity",
+      "title": "Clarify volume checkpoints and Modal-native snapshot APIs",
+      "description": "Add workspace_checkpoint plus filesystem/directory snapshot and image mount helpers while preserving create_snapshot compatibility.",
+      "priority": 3,
+      "passes": false,
+      "evidence": []
+    },
+    {
+      "id": "filesystem-inspection-and-sync",
+      "title": "Expose filesystem stat, watch, and workspace sync helpers",
+      "description": "Add JSON-friendly stat/watch wrappers and a sync_workspace helper for volume-backed workflows.",
+      "priority": 4,
+      "passes": false,
+      "evidence": []
+    },
+    {
+      "id": "source-seeding",
+      "title": "Add explicit post-create source seeding",
+      "description": "Support public git/tarball seeding with argv commands, credential redaction, and secret-based private auth guidance.",
+      "priority": 5,
+      "passes": false,
+      "evidence": []
+    },
+    {
+      "id": "packaging-and-ci-matrix",
+      "title": "Tighten packaging and CI compatibility coverage",
+      "description": "Consider a Modal major-version upper bound and add CI coverage across supported Python versions.",
+      "priority": 6,
+      "passes": false,
+      "evidence": []
+    }
+  ]
+}

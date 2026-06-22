@@ -76,6 +76,9 @@ Use `run-command` when you want argv-style execution without shell wrapping:
 uv run sandbox --runtime python3.13 run-command python -c "print(123)"
 ```
 
+For `run` and `run-command`, relative `--cwd` values resolve inside the
+sandbox workspace. Absolute `--cwd` values are used as-is.
+
 By default, `sandbox run` exits with status `0` when the SDK call succeeds,
 even if the command inside the sandbox exits nonzero. Use
 `--use-command-exit-code` when shell scripts should receive the sandbox
@@ -100,6 +103,16 @@ domains. Repeat the flag for multiple domains:
 ```bash
 uv run sandbox --allow-domain api.openai.com --allow-domain github.com run "python app.py"
 ```
+
+Use `--allow-cidr` for outbound IP ranges and `--allow-inbound-cidr` for
+inbound tunnel/connect-token access:
+
+```bash
+uv run sandbox --allow-cidr 10.0.0.0/8 run "python app.py"
+uv run sandbox --encrypted-port 8080 --allow-inbound-cidr 203.0.113.0/24 start
+```
+
+`--block-network` cannot be combined with domain or CIDR allowlists.
 
 Mount additional Modal volumes with `--volume NAME:/absolute/path`:
 
@@ -154,13 +167,27 @@ creating a sandbox because there is no persistent workspace volume to name.
 
 ## Long-Lived Sandboxes
 
-Create a reusable sandbox:
+Create a reusable sandbox. Add `--name` when you want a stable handle that can
+be reused while the sandbox is running:
 
 ```bash
-uv run sandbox --runtime node24 --encrypted-port 3000 --volume node-cache:/cache start
+uv run sandbox --runtime node24 --name agent-workspace --encrypted-port 3000 --volume node-cache:/cache start
 ```
 
-The output includes a `sandbox_id`. Reuse it with `--sandbox-id`:
+The output includes a `sandbox_id`. If you provided `--name`, the output also
+includes `sandbox_name`, and the generated reuse commands prefer
+`--sandbox-name`.
+
+Reuse by name:
+
+```bash
+uv run sandbox --sandbox-name agent-workspace write hello.py --content "print('hello')"
+uv run sandbox --sandbox-name agent-workspace run "python hello.py"
+uv run sandbox --sandbox-name agent-workspace read hello.py
+uv run sandbox --sandbox-name agent-workspace domain 3000
+```
+
+Reuse by ID:
 
 ```bash
 uv run sandbox --sandbox-id sb-abc123 write hello.py --content "print('hello')"
@@ -169,12 +196,14 @@ uv run sandbox --sandbox-id sb-abc123 read hello.py
 uv run sandbox --sandbox-id sb-abc123 domain 3000
 ```
 
-`domain` requires `--sandbox-id`; use `start` to create a reusable sandbox with
-declared ports before resolving a port URL. Invalid lifecycle combinations and
-invalid global configuration are rejected before creating Modal resources.
+`domain` requires `--sandbox-id` or `--sandbox-name`; use `start` to create a
+reusable sandbox with declared ports before resolving a port URL. Invalid
+lifecycle combinations and invalid global configuration are rejected before
+creating Modal resources.
 
 Terminate it when you are done:
 
 ```bash
 uv run sandbox stop sb-abc123
+uv run sandbox --sandbox-name agent-workspace stop
 ```

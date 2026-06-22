@@ -155,13 +155,15 @@ with Sandbox.create(
     print(sb.run("python --version").stdout)
 ```
 
-Restrict sandbox outbound network access to specific domains when running
-agentic or CI workflows that should not reach arbitrary hosts:
+Restrict sandbox network access when running agentic or CI workflows that
+should not reach arbitrary hosts:
 
 ```python
 with Sandbox.create(
     image=Images.PY313,
     outbound_domain_allowlist=["api.openai.com", "github.com"],
+    outbound_cidr_allowlist=["10.0.0.0/8"],
+    inbound_cidr_allowlist=["203.0.113.0/24"],
 ) as sb:
     print(sb.run("python -c 'print(123)'").stdout)
 ```
@@ -189,6 +191,8 @@ The `Sandbox` object exposes a small synchronous API:
 ```python
 Sandbox.create(...)
 Sandbox.from_id(...)
+Sandbox.from_name(...)
+Sandbox.get_or_create(...)
 Sandbox.from_snapshot(...)
 Sandbox.from_provider(...)
 sb.config
@@ -200,7 +204,7 @@ sb.write_text("hello.py", "print('hello')\n")
 sb.read_text("hello.py")
 sb.write_bytes("data.bin", b"hello")
 sb.read_bytes("data.bin")
-sb.write_files([{"path": "hello.py", "content": "print('hello')\n"}])
+sb.write_files([{"path": "hello.py", "content": "print('hello')\n", "mode": 0o644}])
 sb.list_files(".")
 sb.mkdir("notes")
 sb.remove("notes", recursive=True)
@@ -244,19 +248,21 @@ Mount an additional Modal volume:
 uv run sandbox --volume cache-volume:/cache run "ls /cache"
 ```
 
-Restrict outbound sandbox network access to specific domains:
+Restrict sandbox network access:
 
 ```bash
 uv run sandbox --allow-domain api.openai.com --allow-domain github.com run "python app.py"
+uv run sandbox --allow-cidr 10.0.0.0/8 run "python app.py"
+uv run sandbox --encrypted-port 8080 --allow-inbound-cidr 203.0.113.0/24 start
 ```
 
 Create a reusable sandbox for a longer workflow:
 
 ```bash
-uv run sandbox --image py313 start
-uv run sandbox --sandbox-id sb-abc123 write hello.py --content "print('hello')"
-uv run sandbox --sandbox-id sb-abc123 run "python hello.py"
-uv run sandbox stop sb-abc123
+uv run sandbox --image py313 --name agent-workspace start
+uv run sandbox --sandbox-name agent-workspace write hello.py --content "print('hello')"
+uv run sandbox --sandbox-name agent-workspace run "python hello.py"
+uv run sandbox --sandbox-name agent-workspace stop
 ```
 
 The CLI accepts registry tags such as `python:3.13-slim`, beginner image aliases

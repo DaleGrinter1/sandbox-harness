@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, Protocol, TypeVar
 
 from .commands import CommandResult, SandboxCommand
-from .errors import ModalAuthenticationError, SandboxConfigurationError, SandboxProviderError
+from .errors import ModalAuthenticationError, SandboxConfigurationError, SandboxNotFoundError, SandboxProviderError
 from .types import (
     ImageSpec,
     SandboxConfig,
@@ -114,7 +114,8 @@ class SandboxProvider(Protocol):
             args: Arguments passed directly to the executable.
             cwd: Optional working directory inside the sandbox.
             env: Optional per-command environment variables.
-            timeout: Optional command timeout in seconds.
+            timeout: Optional command timeout in seconds. When omitted, the
+                detached command is not bounded by `command_timeout`.
             pty: Whether to request a pseudo-terminal.
 
         Returns:
@@ -326,6 +327,27 @@ def _translate_modal_auth_error(exc: Exception, modal: object | None = None) -> 
         _raise_with_auth_guidance(exc)
 
 
+def _is_modal_not_found_error(exc: Exception, modal: object | None = None) -> bool:
+    """Return whether an exception is Modal's not-found error type.
+
+    Args:
+        exc: Exception raised by Modal or the provider.
+        modal: Optional Modal module object. When omitted, Modal is loaded
+            lazily.
+
+    Returns:
+        `True` when the exception is recognized as Modal's not-found error.
+    """
+    if modal is None:
+        try:
+            modal = ModalSandboxProvider._load_modal()
+        except RuntimeError:
+            return False
+
+    not_found_error = getattr(getattr(modal, "exception", None), "NotFoundError", None)
+    return isinstance(exc, not_found_error) if isinstance(not_found_error, type) else False
+
+
 def _raise_provider_error(exc: Exception, *, context: str | None = None) -> NoReturn:
     """Raise a provider error with optional operation context.
 
@@ -415,6 +437,23 @@ def sandbox_path(path: str, workspace: str) -> str:
     return f"{workspace_root}/{'/'.join(parts)}"
 
 
+def sandbox_workdir(cwd: str | None, default_workdir: str | None, workspace: str) -> str:
+    """Resolve a command working directory inside the sandbox.
+
+    Args:
+        cwd: Per-command working directory.
+        default_workdir: Sandbox default working directory.
+        workspace: Absolute sandbox workspace root.
+
+    Returns:
+        Absolute working directory inside the sandbox.
+
+    Raises:
+        ValueError: If a relative working directory escapes the workspace.
+    """
+    return sandbox_path(cwd or default_workdir or workspace, workspace)
+
+
 class ModalSandboxProvider:
     """Provider backed by real Modal Sandbox objects."""
 
@@ -430,6 +469,7 @@ class ModalSandboxProvider:
         self._sandbox = sandbox
         self.config = config
         self._owns_sandbox = owns_sandbox
+        self._closed = False
 
     @classmethod
     def create(cls, config: SandboxConfig | None = None) -> ModalSandboxProvider:
@@ -464,6 +504,8 @@ class ModalSandboxProvider:
                 create_kwargs["volumes"] = volumes
 
             optional_kwargs = {
+                "name": config.name,
+                "tags": dict(config.tags) if config.tags is not None else None,
                 "env": dict(config.env) if config.env is not None else None,
                 "workdir": config.workdir,
                 "cpu": config.cpu,
@@ -472,6 +514,12 @@ class ModalSandboxProvider:
                 "region": config.region,
                 "outbound_domain_allowlist": (
                     list(config.outbound_domain_allowlist) if config.outbound_domain_allowlist else None
+                ),
+                "outbound_cidr_allowlist": (
+                    list(config.outbound_cidr_allowlist) if config.outbound_cidr_allowlist else None
+                ),
+                "inbound_cidr_allowlist": (
+                    list(config.inbound_cidr_allowlist) if config.inbound_cidr_allowlist else None
                 ),
                 "encrypted_ports": list(config.encrypted_ports) if config.encrypted_ports else None,
                 "unencrypted_ports": list(config.unencrypted_ports) if config.unencrypted_ports else None,
@@ -486,6 +534,42 @@ class ModalSandboxProvider:
         except Exception as exc:
             _translate_modal_auth_error(exc, modal)
             _raise_provider_error(exc, context="creating Modal sandbox")
+        return provider
+
+    @classmethod
+    def from_name(
+        cls,
+        name: str,
+        config: SandboxConfig | None = None,
+        *,
+        ensure_workspace: bool = True,
+    ) -> ModalSandboxProvider:
+        """Attach to an existing running Modal sandbox by name.
+
+        Args:
+            name: Modal sandbox name to resolve within the configured app.
+            config: Optional local SDK configuration to use for paths and
+                command defaults.
+            ensure_workspace: Whether to create the configured workspace after
+                attaching.
+
+        Returns:
+            Provider connected to the existing named Modal sandbox.
+        """
+        config = config or SandboxConfig(name=name)
+        modal = None
+        try:
+            modal = cls._load_modal()
+            provider = cls(modal.Sandbox.from_name(config.app_name, name), config, owns_sandbox=False)
+            if ensure_workspace:
+                provider.mkdir(config.workspace, parents=True)
+        except Exception as exc:
+            _translate_modal_auth_error(exc, modal)
+            if _is_modal_not_found_error(exc, modal):
+                raise SandboxNotFoundError(
+                    f"No running Modal sandbox named {name!r} was found in app {config.app_name!r}."
+                ) from exc
+            _raise_provider_error(exc, context=f"attaching to Modal sandbox named {name}")
         return provider
 
     @classmethod
@@ -594,7 +678,7 @@ class ModalSandboxProvider:
             Command result with captured output and timing metadata.
         """
         effective_timeout = timeout if timeout is not None else self.config.command_timeout
-        effective_cwd = cwd or self.config.workdir or self.config.workspace
+        effective_cwd = sandbox_workdir(cwd, self.config.workdir, self.config.workspace)
         effective_max_output_bytes = max_output_bytes if max_output_bytes is not None else self.config.max_output_bytes
         shell_command = f"cd {_quote(effective_cwd)} && {command}"
 
@@ -658,7 +742,7 @@ class ModalSandboxProvider:
         """
         command, command_args = _argv_command(cmd, args)
         effective_timeout = timeout if timeout is not None else self.config.command_timeout
-        effective_cwd = cwd or self.config.workdir or self.config.workspace
+        effective_cwd = sandbox_workdir(cwd, self.config.workdir, self.config.workspace)
         effective_max_output_bytes = max_output_bytes if max_output_bytes is not None else self.config.max_output_bytes
 
         start = time.monotonic()
@@ -717,15 +801,16 @@ class ModalSandboxProvider:
             args: Arguments passed directly to the executable.
             cwd: Optional working directory inside the sandbox.
             env: Optional per-command environment variables.
-            timeout: Optional command timeout in seconds.
+            timeout: Optional command timeout in seconds. When omitted, the
+                detached command is not bounded by `command_timeout`.
             pty: Whether to request a pseudo-terminal.
 
         Returns:
             Detached command wrapper.
         """
         command_args = tuple(str(arg) for arg in (args or ()))
-        effective_timeout = timeout if timeout is not None else self.config.command_timeout
-        effective_cwd = cwd or self.config.workdir or self.config.workspace
+        effective_timeout = timeout
+        effective_cwd = sandbox_workdir(cwd, self.config.workdir, self.config.workspace)
         try:
             process = self._sandbox.exec(
                 cmd,
@@ -865,6 +950,7 @@ class ModalSandboxProvider:
             if callable(detach):
                 detach()
             self._owns_sandbox = False
+            self._closed = True
         except Exception as exc:
             _translate_modal_auth_error(exc)
             _raise_provider_error(exc, context="detaching Modal sandbox")
@@ -880,6 +966,7 @@ class ModalSandboxProvider:
             if callable(terminate):
                 terminate(wait=wait)
             self._owns_sandbox = False
+            self._closed = True
         except Exception as exc:
             _translate_modal_auth_error(exc)
             _raise_provider_error(exc, context="terminating Modal sandbox")
@@ -931,6 +1018,8 @@ class ModalSandboxProvider:
         Created providers own their sandbox and terminate it on close. Attached
         providers only detach so the caller's existing sandbox keeps running.
         """
+        if self._closed:
+            return
         if self._owns_sandbox:
             self.terminate(wait=True)
         else:

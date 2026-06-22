@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Callable, Mapping, Sequence
+from ipaddress import ip_address, ip_network
 
 from .commands import CommandResult, SandboxCommand
-from .errors import SandboxConfigurationError
+from .errors import SandboxConfigurationError, SandboxProviderError
 from .files import SandboxFile
-from .provider_modal import ModalSandboxProvider, SandboxProvider
+from .provider_modal import ModalSandboxProvider, SandboxProvider, sandbox_path
 from .types import (
     DEFAULT_MAX_OUTPUT_BYTES,
     ImageSpec,
@@ -23,6 +25,7 @@ RUNTIME_IMAGES = {
     "node24": "node:24-slim",
     "node22": "node:22-slim",
 }
+SANDBOX_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
 
 
 class Sandbox:
@@ -47,6 +50,8 @@ class Sandbox:
         cls,
         *,
         app_name: str = "modal-sandbox-sdk",
+        name: str | None = None,
+        tags: Mapping[str, str] | None = None,
         workspace: str = "/workspace",
         image: ImageSpec = None,
         runtime: RuntimeSpec = None,
@@ -61,6 +66,8 @@ class Sandbox:
         region: str | list[str] | None = None,
         block_network: bool = False,
         outbound_domain_allowlist: Sequence[str] | None = None,
+        outbound_cidr_allowlist: Sequence[str] | None = None,
+        inbound_cidr_allowlist: Sequence[str] | None = None,
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
@@ -70,6 +77,9 @@ class Sandbox:
 
         Args:
             app_name: Modal app name used for sandbox creation.
+            name: Optional Modal sandbox name, unique within the app while it
+                is running.
+            tags: Optional Modal sandbox tags.
             workspace: Default directory for relative file operations and
                 commands.
             image: Registry image tag or prebuilt `modal.Image` object.
@@ -89,6 +99,11 @@ class Sandbox:
             outbound_domain_allowlist: Domains that sandbox processes may
                 connect to. Requests outside the allowlist are blocked by
                 Modal infrastructure.
+            outbound_cidr_allowlist: CIDR ranges that sandbox processes may
+                connect to. Requests outside the allowlist are blocked by
+                Modal infrastructure unless also allowed by domain.
+            inbound_cidr_allowlist: CIDR ranges allowed to connect to sandbox
+                tunnels and connect tokens.
             max_output_bytes: Maximum captured bytes per output stream. Use
                 `None` for no SDK truncation.
             encrypted_ports: Ports to expose as HTTPS Modal tunnels.
@@ -100,12 +115,24 @@ class Sandbox:
             A `Sandbox` connected to the created or attached Modal sandbox.
         """
         resolved_image = _resolve_runtime_image(runtime, image)
+        normalized_name = _normalize_sandbox_name(name)
+        normalized_tags = _normalize_tags(tags)
         normalized_volumes = _normalize_volumes(volumes)
         normalized_domain_allowlist = _normalize_domain_allowlist(outbound_domain_allowlist)
+        normalized_outbound_cidrs = _normalize_cidr_allowlist(outbound_cidr_allowlist, "outbound_cidr_allowlist")
+        normalized_inbound_cidrs = _normalize_cidr_allowlist(inbound_cidr_allowlist, "inbound_cidr_allowlist")
         _validate_volume_mounts(normalized_volumes)
+        _validate_network_policy(
+            block_network=block_network,
+            outbound_domain_allowlist=normalized_domain_allowlist,
+            outbound_cidr_allowlist=normalized_outbound_cidrs,
+            inbound_cidr_allowlist=normalized_inbound_cidrs,
+        )
 
         config = SandboxConfig(
             app_name=app_name,
+            name=normalized_name,
+            tags=normalized_tags,
             workspace=workspace,
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
@@ -120,6 +147,8 @@ class Sandbox:
             region=region,
             block_network=block_network,
             outbound_domain_allowlist=normalized_domain_allowlist,
+            outbound_cidr_allowlist=normalized_outbound_cidrs,
+            inbound_cidr_allowlist=normalized_inbound_cidrs,
             max_output_bytes=max_output_bytes,
             encrypted_ports=tuple(encrypted_ports or ()),
             unencrypted_ports=tuple(unencrypted_ports or ()),
@@ -173,11 +202,139 @@ class Sandbox:
         return cls(ModalSandboxProvider.from_id(sandbox_id, config, ensure_workspace=ensure_workspace))
 
     @classmethod
+    def from_name(
+        cls,
+        name: str,
+        *,
+        app_name: str = "modal-sandbox-sdk",
+        workspace: str = "/workspace",
+        command_timeout: int = 30,
+        sandbox_timeout: int = 300,
+        workdir: str | None = None,
+        max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
+        ensure_workspace: bool = True,
+    ) -> Sandbox:
+        """Attach to a running Modal Sandbox by name.
+
+        Args:
+            name: Modal sandbox name to resolve within `app_name`.
+            app_name: Modal app name associated with the sandbox.
+            workspace: Default workspace for relative paths.
+            command_timeout: Default timeout in seconds for `run`.
+            sandbox_timeout: Stored for config symmetry with `create`.
+            workdir: Default working directory for commands.
+            max_output_bytes: Maximum captured bytes per output stream.
+            ensure_workspace: Whether to create the configured workspace after
+                attaching.
+
+        Returns:
+            A `Sandbox` connected to the running named Modal sandbox.
+        """
+        normalized_name = _normalize_sandbox_name(name)
+        if normalized_name is None:
+            raise SandboxConfigurationError("sandbox name must not be empty.")
+        config = SandboxConfig(
+            app_name=app_name,
+            name=normalized_name,
+            workspace=workspace,
+            command_timeout=command_timeout,
+            sandbox_timeout=sandbox_timeout,
+            workdir=workdir,
+            max_output_bytes=max_output_bytes,
+        )
+        return cls(ModalSandboxProvider.from_name(normalized_name, config, ensure_workspace=ensure_workspace))
+
+    @classmethod
+    def get_or_create(
+        cls,
+        name: str,
+        *,
+        on_create: Callable[[Sandbox], None] | None = None,
+        app_name: str = "modal-sandbox-sdk",
+        workspace: str = "/workspace",
+        image: ImageSpec = None,
+        runtime: RuntimeSpec = None,
+        volumes: Sequence[SandboxVolume] | None = None,
+        env: Mapping[str, str | None] | None = None,
+        workdir: str | None = None,
+        command_timeout: int = 30,
+        sandbox_timeout: int = 300,
+        cpu: float | tuple[float, float] | None = None,
+        memory: int | tuple[int, int] | None = None,
+        gpu: str | None = None,
+        region: str | list[str] | None = None,
+        block_network: bool = False,
+        outbound_domain_allowlist: Sequence[str] | None = None,
+        outbound_cidr_allowlist: Sequence[str] | None = None,
+        inbound_cidr_allowlist: Sequence[str] | None = None,
+        max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
+        encrypted_ports: Sequence[int] | None = None,
+        unencrypted_ports: Sequence[int] | None = None,
+        tags: Mapping[str, str] | None = None,
+    ) -> Sandbox:
+        """Attach to a running named sandbox or create it when absent.
+
+        Args:
+            name: Modal sandbox name to resolve or create.
+            on_create: Optional callback invoked only after a new sandbox is
+                created.
+            app_name: Modal app name associated with the sandbox.
+
+        Returns:
+            Existing or newly created sandbox.
+        """
+        from .errors import SandboxNotFoundError
+
+        normalized_name = _normalize_sandbox_name(name)
+        if normalized_name is None:
+            raise SandboxConfigurationError("sandbox name must not be empty.")
+        try:
+            return cls.from_name(
+                normalized_name,
+                app_name=app_name,
+                workspace=workspace,
+                command_timeout=command_timeout,
+                sandbox_timeout=sandbox_timeout,
+                workdir=workdir,
+                max_output_bytes=max_output_bytes,
+            )
+        except SandboxNotFoundError:
+            sandbox = cls.create(
+                app_name=app_name,
+                name=normalized_name,
+                tags=tags,
+                workspace=workspace,
+                image=image,
+                runtime=runtime,
+                volumes=volumes,
+                env=env,
+                workdir=workdir,
+                command_timeout=command_timeout,
+                sandbox_timeout=sandbox_timeout,
+                cpu=cpu,
+                memory=memory,
+                gpu=gpu,
+                region=region,
+                block_network=block_network,
+                outbound_domain_allowlist=outbound_domain_allowlist,
+                outbound_cidr_allowlist=outbound_cidr_allowlist,
+                inbound_cidr_allowlist=inbound_cidr_allowlist,
+                max_output_bytes=max_output_bytes,
+                encrypted_ports=encrypted_ports,
+                unencrypted_ports=unencrypted_ports,
+            )
+            if on_create is not None:
+                on_create(sandbox)
+            return sandbox
+
+    @classmethod
     def from_snapshot(
         cls,
         name: str,
         *,
         app_name: str = "modal-sandbox-sdk",
+        sandbox_name: str | None = None,
+        tags: Mapping[str, str] | None = None,
         workspace: str = "/workspace",
         image: ImageSpec = None,
         runtime: RuntimeSpec = None,
@@ -191,6 +348,8 @@ class Sandbox:
         region: str | list[str] | None = None,
         block_network: bool = False,
         outbound_domain_allowlist: Sequence[str] | None = None,
+        outbound_cidr_allowlist: Sequence[str] | None = None,
+        inbound_cidr_allowlist: Sequence[str] | None = None,
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
@@ -200,6 +359,7 @@ class Sandbox:
         Args:
             name: Modal volume name to mount as the workspace snapshot.
             app_name: Modal app name used for sandbox creation.
+            sandbox_name: Optional Modal sandbox name for the restored sandbox.
             workspace: Workspace mount path.
             image: Registry image tag or prebuilt `modal.Image` object.
             runtime: Vercel-style runtime alias.
@@ -209,6 +369,8 @@ class Sandbox:
         """
         return cls.create(
             app_name=app_name,
+            name=sandbox_name,
+            tags=tags,
             workspace=workspace,
             image=image,
             runtime=runtime,
@@ -223,6 +385,8 @@ class Sandbox:
             region=region,
             block_network=block_network,
             outbound_domain_allowlist=outbound_domain_allowlist,
+            outbound_cidr_allowlist=outbound_cidr_allowlist,
+            inbound_cidr_allowlist=inbound_cidr_allowlist,
             max_output_bytes=max_output_bytes,
             encrypted_ports=encrypted_ports,
             unencrypted_ports=unencrypted_ports,
@@ -442,6 +606,13 @@ class Sandbox:
                 self.write_bytes(sandbox_file.path, sandbox_file.content)
             else:
                 self.write_text(sandbox_file.path, sandbox_file.content)
+            if sandbox_file.mode is not None:
+                chmod_path = sandbox_path(sandbox_file.path, self.config.workspace)
+                result = self.run_command("chmod", [f"{sandbox_file.mode:o}", chmod_path])
+                if result.exit_code not in (0, None):
+                    raise SandboxProviderError(
+                        f"chmod failed for {chmod_path!r} with exit code {result.exit_code}: {result.stderr}"
+                    )
 
     def close(self) -> None:
         """Terminate or detach from the underlying sandbox."""
@@ -526,6 +697,63 @@ def _resolve_runtime_image(runtime: RuntimeSpec, image: ImageSpec) -> ImageSpec:
         raise SandboxConfigurationError(f"Unsupported runtime {runtime!r}. Supported runtimes: {supported}.") from exc
 
 
+def _normalize_sandbox_name(name: str | None) -> str | None:
+    """Normalize an optional Modal sandbox name.
+
+    Args:
+        name: Optional sandbox name.
+
+    Returns:
+        Stripped sandbox name, or `None`.
+
+    Raises:
+        TypeError: If the name is not a string.
+        SandboxConfigurationError: If the name violates Modal's documented
+            syntax.
+    """
+    if name is None:
+        return None
+    if not isinstance(name, str):
+        raise TypeError("sandbox name must be a string.")
+    value = name.strip()
+    if not value:
+        raise SandboxConfigurationError("sandbox name must not be empty.")
+    if not SANDBOX_NAME_RE.fullmatch(value):
+        raise SandboxConfigurationError(
+            "sandbox name must be shorter than 64 characters and contain only letters, numbers, dashes, periods, and underscores."
+        )
+    return value
+
+
+def _normalize_tags(tags: Mapping[str, str] | None) -> dict[str, str] | None:
+    """Normalize optional Modal sandbox tags.
+
+    Args:
+        tags: Optional tag mapping.
+
+    Returns:
+        Plain dictionary of tags, or `None`.
+
+    Raises:
+        TypeError: If tag keys or values are not strings.
+        SandboxConfigurationError: If a tag key is empty.
+    """
+    if tags is None:
+        return None
+
+    normalized: dict[str, str] = {}
+    for key, value in tags.items():
+        if not isinstance(key, str):
+            raise TypeError("sandbox tag keys must be strings.")
+        if not isinstance(value, str):
+            raise TypeError("sandbox tag values must be strings.")
+        normalized_key = key.strip()
+        if not normalized_key:
+            raise SandboxConfigurationError("sandbox tag keys must not be empty.")
+        normalized[normalized_key] = value
+    return normalized
+
+
 def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFile:
     """Normalize bulk file input into a `SandboxFile`.
 
@@ -539,14 +767,55 @@ def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFil
         TypeError: If the mapping shape is invalid.
     """
     if isinstance(file, SandboxFile):
+        _validate_file_mode(file.mode)
         return file
     path = file.get("path")
     content = file.get("content")
+    mode = _coerce_file_mode(file.get("mode"))
     if not isinstance(path, str):
         raise TypeError("Sandbox file mappings must include a string 'path'.")
     if not isinstance(content, (str, bytes)):
         raise TypeError("Sandbox file mappings must include string or bytes 'content'.")
-    return SandboxFile(path=path, content=content)
+    return SandboxFile(path=path, content=content, mode=mode)
+
+
+def _coerce_file_mode(mode: object) -> int | None:
+    """Normalize an optional mapping file mode.
+
+    Args:
+        mode: Optional mode value from a mapping.
+
+    Returns:
+        Integer mode, or `None`.
+
+    Raises:
+        TypeError: If the mode is not an integer.
+        SandboxConfigurationError: If the mode is outside the POSIX range.
+    """
+    if mode is None:
+        return None
+    if not isinstance(mode, int) or isinstance(mode, bool):
+        raise TypeError("Sandbox file mode must be an integer.")
+    _validate_file_mode(mode)
+    return mode
+
+
+def _validate_file_mode(mode: int | None) -> None:
+    """Validate an optional POSIX file mode.
+
+    Args:
+        mode: Optional integer mode.
+
+    Raises:
+        TypeError: If the mode is not an integer.
+        SandboxConfigurationError: If the mode is outside the POSIX range.
+    """
+    if mode is None:
+        return
+    if not isinstance(mode, int) or isinstance(mode, bool):
+        raise TypeError("Sandbox file mode must be an integer.")
+    if mode < 0 or mode > 0o7777:
+        raise SandboxConfigurationError("Sandbox file mode must be between 0o0000 and 0o7777.")
 
 
 def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[SandboxVolume, ...]:
@@ -592,8 +861,112 @@ def _normalize_domain_allowlist(domains: Sequence[str] | None) -> tuple[str, ...
         value = domain.strip()
         if not value:
             raise SandboxConfigurationError("outbound_domain_allowlist values must not be empty.")
+        normalized.append(_validate_domain_allowlist_value(value))
+    return tuple(normalized)
+
+
+def _validate_domain_allowlist_value(value: str) -> str:
+    """Validate one Modal outbound domain allowlist entry.
+
+    Args:
+        value: Stripped allowlist entry.
+
+    Returns:
+        The validated value.
+
+    Raises:
+        SandboxConfigurationError: If the value is not a hostname-style domain.
+    """
+    if any(character.isspace() for character in value):
+        raise SandboxConfigurationError("outbound_domain_allowlist values must not contain whitespace.")
+    if any(fragment in value for fragment in ("://", "/", "\\", ":", "@")):
+        raise SandboxConfigurationError("outbound_domain_allowlist values must be hostnames, not URLs.")
+
+    wildcard = value.startswith("*.")
+    hostname = value[2:] if wildcard else value
+    if not hostname or len(hostname) > 253:
+        raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
+    if hostname.startswith(".") or hostname.endswith(".") or ".." in hostname:
+        raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
+
+    try:
+        ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        raise SandboxConfigurationError(
+            "outbound_domain_allowlist values must be domain names; use outbound_cidr_allowlist for IP ranges."
+        )
+
+    for label in hostname.split("."):
+        if not label or len(label) > 63:
+            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
+        if label.startswith("-") or label.endswith("-"):
+            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
+        if not all(character.isalnum() or character == "-" for character in label):
+            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
+
+    return value
+
+
+def _normalize_cidr_allowlist(cidrs: Sequence[str] | None, field_name: str) -> tuple[str, ...]:
+    """Normalize optional CIDR allowlist values.
+
+    Args:
+        cidrs: Optional sequence of CIDR strings.
+        field_name: Public field name used in error messages.
+
+    Returns:
+        Tuple of stripped CIDR strings.
+
+    Raises:
+        TypeError: If any item is not a string.
+        SandboxConfigurationError: If any item is empty or invalid.
+    """
+    if cidrs is None:
+        return ()
+
+    normalized: list[str] = []
+    for cidr in cidrs:
+        if not isinstance(cidr, str):
+            raise TypeError(f"{field_name} must contain strings.")
+        value = cidr.strip()
+        if not value:
+            raise SandboxConfigurationError(f"{field_name} values must not be empty.")
+        if "/" not in value:
+            raise SandboxConfigurationError(f"{field_name} values must be CIDR ranges.")
+        try:
+            ip_network(value, strict=False)
+        except ValueError as exc:
+            raise SandboxConfigurationError(f"{field_name} values must be valid CIDR ranges.") from exc
         normalized.append(value)
     return tuple(normalized)
+
+
+def _validate_network_policy(
+    *,
+    block_network: bool,
+    outbound_domain_allowlist: Sequence[str],
+    outbound_cidr_allowlist: Sequence[str],
+    inbound_cidr_allowlist: Sequence[str],
+) -> None:
+    """Validate Modal network policy combinations.
+
+    Args:
+        block_network: Whether all outbound network access is blocked.
+        outbound_domain_allowlist: Domain allowlist entries.
+        outbound_cidr_allowlist: Outbound CIDR allowlist entries.
+        inbound_cidr_allowlist: Inbound CIDR allowlist entries.
+
+    Raises:
+        SandboxConfigurationError: If `block_network` is combined with an
+            allowlist that Modal rejects.
+    """
+    if block_network and (outbound_domain_allowlist or outbound_cidr_allowlist or inbound_cidr_allowlist):
+        raise SandboxConfigurationError(
+            "block_network cannot be combined with outbound_domain_allowlist, "
+            "outbound_cidr_allowlist, or inbound_cidr_allowlist."
+        )
 
 
 def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:

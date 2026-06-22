@@ -1,7 +1,13 @@
 """Public SDK exports for Modal Sandbox helpers."""
 
 from .commands import CommandResult, SandboxCommand
-from .errors import ModalAuthenticationError, SandboxConfigurationError, SandboxError, SandboxProviderError
+from .errors import (
+    ModalAuthenticationError,
+    SandboxConfigurationError,
+    SandboxError,
+    SandboxNotFoundError,
+    SandboxProviderError,
+)
 from .files import SandboxFile
 from .images import Images
 from .sandbox import Sandbox
@@ -23,6 +29,7 @@ __all__ = [
     "SandboxConfig",
     "SandboxError",
     "SandboxFile",
+    "SandboxNotFoundError",
     "SandboxProviderError",
     "SandboxSnapshot",
     "SandboxVolume",

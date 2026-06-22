@@ -15,5 +15,9 @@ class SandboxProviderError(SandboxError):
     """Raised when the sandbox provider reports an unexpected failure."""
 
 
+class SandboxNotFoundError(SandboxProviderError):
+    """Raised when a requested running sandbox cannot be found."""
+
+
 class SandboxConfigurationError(SandboxError, ValueError):
     """Raised when sandbox options are invalid or internally inconsistent."""

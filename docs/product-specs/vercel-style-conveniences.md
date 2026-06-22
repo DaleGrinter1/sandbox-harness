@@ -12,6 +12,8 @@ Modal-first.
 - Users can run argv-style commands without shell wrapping.
 - Users can start detached command processes for development servers.
 - Users can declare sandbox ports and resolve domains for reusable sandboxes.
+- Users can name long-lived sandboxes and reattach by name while they are
+  running.
 - Users can write multiple files in one SDK call.
 
 ## Behavior
@@ -21,8 +23,8 @@ Modal-first.
 - `run_command_detached` returns a `SandboxCommand` handle with logs, wait,
   poll, streams, and return code access.
 - Ports must be declared when the sandbox is created.
-- CLI `domain` requires `--sandbox-id` so URL lookup happens against a
-  reusable sandbox.
+- CLI `domain` requires `--sandbox-id` or `--sandbox-name` so URL lookup
+  happens against a reusable sandbox.
 
 ## Non-Goals
 
@@ -43,6 +45,6 @@ with Sandbox.create(runtime="node24", encrypted_ports=[3000]) as sb:
 
 ```bash
 sandbox --runtime python3.13 run-command python -c "print(123)"
-sandbox --runtime node24 --encrypted-port 3000 start
-sandbox --sandbox-id sb-abc123 domain 3000
+sandbox --runtime node24 --name agent-workspace --encrypted-port 3000 start
+sandbox --sandbox-name agent-workspace domain 3000
 ```

@@ -12,6 +12,7 @@ from sandbox import (
     SandboxConfigurationError,
     SandboxError,
     SandboxFile,
+    SandboxNotFoundError,
     SandboxProviderError,
     SandboxSnapshot,
     SandboxVolume,
@@ -266,6 +267,138 @@ def test_create_resolves_runtime_alias(monkeypatch) -> None:
     assert created_configs[-1].image == "node:24-slim"
 
 
+def test_create_stores_name_and_tags(monkeypatch) -> None:
+    created_configs: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            created_configs.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    Sandbox.create(name=" agent.workspace_1 ", tags={" kind ": "frontend", "owner": "team"})
+
+    assert created_configs[-1].name == "agent.workspace_1"
+    assert created_configs[-1].tags == {"kind": "frontend", "owner": "team"}
+
+
+def test_create_rejects_invalid_name_and_tags() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        Sandbox.create(name="")
+
+    with pytest.raises(ValueError, match="letters, numbers"):
+        Sandbox.create(name="bad name")
+
+    with pytest.raises(ValueError, match="shorter than 64"):
+        Sandbox.create(name="a" * 64)
+
+    with pytest.raises(TypeError, match="tag keys"):
+        Sandbox.create(tags={1: "value"})  # type: ignore[dict-item]
+
+    with pytest.raises(TypeError, match="tag values"):
+        Sandbox.create(tags={"key": 123})  # type: ignore[dict-item]
+
+    with pytest.raises(ValueError, match="tag keys"):
+        Sandbox.create(tags={" ": "value"})
+
+
+def test_from_name_attaches_to_provider(monkeypatch) -> None:
+    from_name_calls: list[tuple[str, SandboxConfig, bool]] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def from_name(cls, name: str, config: SandboxConfig, *, ensure_workspace: bool = True) -> CapturingProvider:
+            from_name_calls.append((name, config, ensure_workspace))
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    sandbox = Sandbox.from_name("agent-workspace", command_timeout=45, ensure_workspace=False)
+
+    assert sandbox.config.name == "agent-workspace"
+    assert from_name_calls == [("agent-workspace", sandbox.config, False)]
+
+
+def test_get_or_create_returns_existing_named_sandbox(monkeypatch) -> None:
+    callbacks: list[Sandbox] = []
+    from_name_calls: list[str] = []
+    create_calls: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def from_name(cls, name: str, config: SandboxConfig, *, ensure_workspace: bool = True) -> CapturingProvider:
+            from_name_calls.append(name)
+            provider = cls()
+            provider.config = config
+            return provider
+
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            create_calls.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    sandbox = Sandbox.get_or_create("agent-workspace", on_create=callbacks.append, tags={"kind": "existing"})
+
+    assert sandbox.config.name == "agent-workspace"
+    assert from_name_calls == ["agent-workspace"]
+    assert create_calls == []
+    assert callbacks == []
+
+
+def test_get_or_create_creates_only_on_not_found(monkeypatch) -> None:
+    callbacks: list[Sandbox] = []
+    create_calls: list[SandboxConfig] = []
+
+    class MissingProvider(FakeProvider):
+        @classmethod
+        def from_name(cls, name: str, config: SandboxConfig, *, ensure_workspace: bool = True) -> MissingProvider:
+            raise SandboxNotFoundError("missing")
+
+        @classmethod
+        def create(cls, config: SandboxConfig) -> MissingProvider:
+            create_calls.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", MissingProvider)
+
+    sandbox = Sandbox.get_or_create(
+        "agent-workspace",
+        runtime="python3.13",
+        tags={"kind": "created"},
+        on_create=callbacks.append,
+    )
+
+    assert sandbox.config.name == "agent-workspace"
+    assert sandbox.config.image == "python:3.13-slim"
+    assert sandbox.config.tags == {"kind": "created"}
+    assert create_calls == [sandbox.config]
+    assert callbacks == [sandbox]
+
+
+def test_get_or_create_does_not_swallow_provider_errors(monkeypatch) -> None:
+    class BrokenProvider(FakeProvider):
+        @classmethod
+        def from_name(cls, name: str, config: SandboxConfig, *, ensure_workspace: bool = True) -> BrokenProvider:
+            raise SandboxProviderError("permission denied")
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", BrokenProvider)
+
+    with pytest.raises(SandboxProviderError, match="permission denied"):
+        Sandbox.get_or_create("agent-workspace")
+
+
 def test_create_stores_declared_ports(monkeypatch) -> None:
     created_configs: list[SandboxConfig] = []
 
@@ -301,6 +434,28 @@ def test_create_stores_outbound_domain_allowlist(monkeypatch) -> None:
     Sandbox.create(outbound_domain_allowlist=[" api.openai.com ", "github.com"])
 
     assert created_configs[-1].outbound_domain_allowlist == ("api.openai.com", "github.com")
+
+
+def test_create_stores_cidr_allowlists(monkeypatch) -> None:
+    created_configs: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            created_configs.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+
+    Sandbox.create(
+        outbound_cidr_allowlist=[" 10.0.1.5/24 ", "2001:db8::/32"],
+        inbound_cidr_allowlist=["203.0.113.0/24"],
+    )
+
+    assert created_configs[-1].outbound_cidr_allowlist == ("10.0.1.5/24", "2001:db8::/32")
+    assert created_configs[-1].inbound_cidr_allowlist == ("203.0.113.0/24",)
 
 
 def test_create_accepts_first_class_volume_mounts(monkeypatch) -> None:
@@ -348,6 +503,40 @@ def test_create_rejects_invalid_domain_allowlist() -> None:
 
     with pytest.raises(TypeError, match="must contain strings"):
         Sandbox.create(outbound_domain_allowlist=["api.openai.com", 123])  # type: ignore[list-item]
+
+    with pytest.raises(ValueError, match="hostnames"):
+        Sandbox.create(outbound_domain_allowlist=["https://api.openai.com"])
+
+    with pytest.raises(ValueError, match="hostnames"):
+        Sandbox.create(outbound_domain_allowlist=["api.openai.com/path"])
+
+    with pytest.raises(ValueError, match="domain names"):
+        Sandbox.create(outbound_domain_allowlist=["127.0.0.1"])
+
+
+def test_create_rejects_invalid_cidr_allowlists() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        Sandbox.create(outbound_cidr_allowlist=[""])
+
+    with pytest.raises(TypeError, match="must contain strings"):
+        Sandbox.create(outbound_cidr_allowlist=["10.0.0.0/8", 123])  # type: ignore[list-item]
+
+    with pytest.raises(ValueError, match="CIDR ranges"):
+        Sandbox.create(outbound_cidr_allowlist=["10.0.0.1"])
+
+    with pytest.raises(ValueError, match="valid CIDR ranges"):
+        Sandbox.create(inbound_cidr_allowlist=["not-a-cidr/24"])
+
+
+def test_create_rejects_block_network_with_allowlists() -> None:
+    with pytest.raises(ValueError, match="block_network cannot be combined"):
+        Sandbox.create(block_network=True, outbound_domain_allowlist=["api.openai.com"])
+
+    with pytest.raises(ValueError, match="block_network cannot be combined"):
+        Sandbox.create(block_network=True, outbound_cidr_allowlist=["10.0.0.0/8"])
+
+    with pytest.raises(ValueError, match="block_network cannot be combined"):
+        Sandbox.create(block_network=True, inbound_cidr_allowlist=["203.0.113.0/24"])
 
 
 def test_create_rejects_runtime_and_image_conflict() -> None:
@@ -408,6 +597,55 @@ def test_write_files_accepts_dataclasses_and_mappings() -> None:
 
     assert provider.text_files["hello.py"] == "print('hello')"
     assert provider.bytes_files["data.bin"] == b"data"
+
+
+def test_write_files_applies_modes_with_argv_chmod() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    sandbox.write_files(
+        [
+            SandboxFile(path="script.sh", content="#!/bin/sh\necho ok\n", mode=0o755),
+            {"path": "private.txt", "content": "secret\n", "mode": 0o600},
+        ]
+    )
+
+    assert provider.text_files["script.sh"] == "#!/bin/sh\necho ok\n"
+    assert provider.text_files["private.txt"] == "secret\n"
+    assert provider.argv_commands[-2:] == [
+        ("chmod", ("755", "/workspace/script.sh"), None, None, None),
+        ("chmod", ("600", "/workspace/private.txt"), None, None, None),
+    ]
+
+
+def test_write_files_rejects_invalid_modes() -> None:
+    sandbox = Sandbox.from_provider(FakeProvider())
+
+    with pytest.raises(TypeError, match="mode"):
+        sandbox.write_files([{"path": "script.sh", "content": "echo ok\n", "mode": "755"}])
+
+    with pytest.raises(ValueError, match="between"):
+        sandbox.write_files([SandboxFile(path="script.sh", content="echo ok\n", mode=0o10000)])
+
+
+def test_write_files_raises_when_chmod_fails() -> None:
+    class FailingChmodProvider(FakeProvider):
+        def run_command(
+            self,
+            cmd: str,
+            args: Sequence[str] | None = None,
+            *,
+            cwd: str | None = None,
+            env: Mapping[str, str | None] | None = None,
+            timeout: int | None = None,
+            max_output_bytes: int | None = None,
+        ) -> CommandResult:
+            return CommandResult("chmod", "", "permission denied", 1, 1, max_output_bytes=max_output_bytes)
+
+    sandbox = Sandbox.from_provider(FailingChmodProvider())
+
+    with pytest.raises(SandboxProviderError, match="chmod failed"):
+        sandbox.write_files([SandboxFile(path="script.sh", content="echo ok\n", mode=0o755)])
 
 
 def test_write_files_rejects_invalid_mappings() -> None:

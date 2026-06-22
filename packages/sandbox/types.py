@@ -41,6 +41,8 @@ class SandboxConfig:
 
     Attributes:
         app_name: Modal app name used for sandbox creation.
+        name: Optional Modal sandbox name, unique within the app while running.
+        tags: Optional Modal sandbox tags.
         workspace: Default sandbox directory for relative paths.
         command_timeout: Default timeout in seconds for command execution.
         sandbox_timeout: Modal sandbox lifetime timeout in seconds.
@@ -55,12 +57,17 @@ class SandboxConfig:
         region: Region preference passed through to Modal.
         block_network: Whether Modal should block outbound network access.
         outbound_domain_allowlist: Domains that sandbox processes may connect to.
+        outbound_cidr_allowlist: CIDR ranges that sandbox processes may connect to.
+        inbound_cidr_allowlist: CIDR ranges allowed to connect to tunnels and
+            connect tokens.
         max_output_bytes: Maximum captured bytes per output stream.
         encrypted_ports: HTTPS ports exposed through Modal tunnels.
         unencrypted_ports: TCP ports exposed through Modal tunnels.
     """
 
     app_name: str = "modal-sandbox-sdk"
+    name: str | None = None
+    tags: Mapping[str, str] | None = None
     workspace: str = "/workspace"
     command_timeout: int = 30
     sandbox_timeout: int = 300
@@ -75,6 +82,8 @@ class SandboxConfig:
     region: str | list[str] | None = None
     block_network: bool = False
     outbound_domain_allowlist: tuple[str, ...] = ()
+    outbound_cidr_allowlist: tuple[str, ...] = ()
+    inbound_cidr_allowlist: tuple[str, ...] = ()
     max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES
     encrypted_ports: tuple[int, ...] = ()
     unencrypted_ports: tuple[int, ...] = ()
