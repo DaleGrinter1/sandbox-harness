@@ -385,6 +385,11 @@
     "created_sandboxes_close_behavior": "terminate",
     "creates_or_attaches_per_command": true,
     "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
+    "dry_commands": [
+      "schema",
+      "doctor",
+      "quickstart"
+    ],
     "live_modal_commands": [
       "quickstart --run",
       "start",

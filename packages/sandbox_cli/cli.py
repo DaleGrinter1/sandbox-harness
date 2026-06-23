@@ -838,6 +838,7 @@ def _schema_payload() -> dict[str, object]:
         },
         "lifecycle": {
             "creates_or_attaches_per_command": True,
+            "dry_commands": ["schema", "doctor", "quickstart"],
             "safe_discovery_commands": ["schema", "doctor", "quickstart"],
             "live_modal_commands": [
                 "quickstart --run",

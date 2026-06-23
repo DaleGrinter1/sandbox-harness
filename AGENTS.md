@@ -13,6 +13,7 @@
 
 - Architecture: `ARCHITECTURE.md`
 - Product intent: `docs/PRODUCT_SENSE.md`, `docs/product-specs`
+- New agent prompt: `docs/references/new-agent-prompt.md`
 - Design docs: `docs/design-docs/`
 - Execution plans: `docs/exec-plans/`
 - Generated facts: `docs/generated/`

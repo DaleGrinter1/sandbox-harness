@@ -3,9 +3,9 @@
 The CLI command is `sandbox`. Commands print JSON except for `--help` and
 `--version`. Failures also print a JSON error envelope to stderr.
 
-## Discovery
+## Discovery / Dry Commands
 
-These commands do not create Modal resources:
+Dry commands are safe discovery commands. They do not create Modal resources:
 
 ```bash
 uv run sandbox schema
@@ -29,7 +29,7 @@ Use `sandbox quickstart --run` to create a short-lived sandbox and run
 `sandbox schema` includes a `golden_workflows` array so agents can discover the
 same first-run paths documented here.
 
-Safe discovery, no Modal resources:
+Dry commands / safe discovery, no Modal resources:
 
 ```bash
 uv run sandbox schema

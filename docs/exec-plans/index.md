@@ -4,7 +4,7 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 ## Active
 
-No active initiatives are currently tracked.
+- [Modal Native Sandbox Expansion](active/modal-native-sandbox-expansion/PLAN_modal-native-sandbox-expansion.md)
 
 ## Completed
 

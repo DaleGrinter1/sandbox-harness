@@ -21,13 +21,18 @@ The public Python package is `sandbox`. The command-line entry point is
 
 ## First 30 Minutes
 
+For agent handoff, start with the
+[new agent starter prompt](new-agent-prompt.md). It tells agents to use dry
+commands first and to check execution-plan state before broad work.
+
 Install dependencies:
 
 ```bash
 uv sync
 ```
 
-Run the safe discovery path. These commands do not create Modal resources:
+Run the dry-command safe discovery path. These commands do not create Modal
+resources:
 
 ```bash
 uv run sandbox schema
@@ -70,9 +75,9 @@ Useful examples for a frontend collaborator:
 - `examples/volume_mounts.py`: mount workspace and cache volumes.
 - `examples/persistent_volume.sh`: keep files across sandbox lifetimes.
 
-## Safe Versus Live Commands
+## Dry Versus Live Commands
 
-Safe discovery commands:
+Dry commands / safe discovery commands:
 
 ```bash
 uv run sandbox schema

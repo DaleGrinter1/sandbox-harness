@@ -2,7 +2,11 @@
 
 This package does not require MCP at runtime. MCPs and repo-local skills are development helpers for agents working on the repository.
 
-Use the safe discovery sequence before creating Modal resources:
+For a complete handoff prompt, use
+[new-agent-prompt.md](new-agent-prompt.md). It tells agents how to start with
+dry commands and how to use active execution-plan state.
+
+Use the dry-command safe discovery sequence before creating Modal resources:
 
 ```bash
 uv run sandbox schema

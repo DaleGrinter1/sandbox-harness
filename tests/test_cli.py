@@ -901,6 +901,7 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert "run-command" in payload["lifecycle"]["live_modal_commands"]
     assert "domain" in payload["lifecycle"]["live_modal_commands"]
     assert "snapshot" in payload["lifecycle"]["live_modal_commands"]
+    assert payload["lifecycle"]["dry_commands"] == ["schema", "doctor", "quickstart"]
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
     assert payload["auth"]["setup_commands"][0] == "modal setup"
@@ -945,6 +946,7 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
     }
     assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["dry_commands"] == ["schema", "doctor", "quickstart"]
     assert set(payload["lifecycle"]["live_modal_commands"]) == (
         expected_commands - {"schema", "doctor", "quickstart"} | {"quickstart --run"}
     )

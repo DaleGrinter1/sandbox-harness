@@ -78,7 +78,7 @@ uv run sandbox --image py313 run "python -c 'print(123)'"
 
 These are the workflows this repo optimizes for and regression-tests.
 
-Safe discovery, no Modal resources:
+Dry commands / safe discovery, no Modal resources:
 
 ```bash
 uv run sandbox schema
@@ -303,6 +303,7 @@ Small examples live in `examples/`:
 ## More Docs
 
 - [CLI workflows](docs/references/cli.md)
+- [New agent starter prompt](docs/references/new-agent-prompt.md)
 - [Vercel-style SDK compatibility](docs/design-docs/vercel-style-sdk-compatibility.md)
 - [Collaborator onboarding](docs/references/collaborator-onboarding.md)
 - [Modal setup](docs/references/modal-setup.md)

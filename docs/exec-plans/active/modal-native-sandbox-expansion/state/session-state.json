@@ -5,10 +5,11 @@
   "blockers": [],
   "next_action": "Start Phase 3 by adding workspace_checkpoint/create_snapshot compatibility and Modal-native filesystem/directory snapshot helpers.",
   "handoff_rules": [
+    "Use docs/references/new-agent-prompt.md when assigning this initiative to a new agent.",
     "Read PLAN_modal-native-sandbox-expansion.md before editing state.",
     "Update active_feature before starting a new feature.",
     "Append progress entries instead of editing old JSONL lines.",
     "Mark passes true only after validation evidence is recorded."
   ],
-  "last_updated": "2026-06-22T03:10:31Z"
+  "last_updated": "2026-06-23T00:56:32Z"
 }
