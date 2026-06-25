@@ -21,6 +21,7 @@ pip install modal-sandbox-sdk
 Check your local Modal setup without creating resources:
 
 ```bash
+sandbox dry
 sandbox doctor
 sandbox quickstart
 ```
@@ -34,6 +35,7 @@ uv sync
 Inspect the CLI contract without creating Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -81,6 +83,7 @@ These are the workflows this repo optimizes for and regression-tests.
 Dry commands / safe discovery, no Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -225,6 +228,7 @@ The CLI command is `sandbox`. Commands print JSON except for `--help` and
 Discovery commands do not create Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -330,6 +334,7 @@ then configure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`.
 Safe discovery commands are:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart

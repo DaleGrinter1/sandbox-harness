@@ -35,6 +35,7 @@ Run the dry-command safe discovery path. These commands do not create Modal
 resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -80,6 +81,7 @@ Useful examples for a frontend collaborator:
 Dry commands / safe discovery commands:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart

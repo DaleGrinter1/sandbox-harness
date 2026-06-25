@@ -21,6 +21,7 @@ Product boundary:
 - Default tests and discovery must not create real Modal resources.
 
 Start with dry commands only:
+- uv run sandbox dry
 - uv run sandbox schema
 - uv run sandbox doctor
 - uv run sandbox quickstart
@@ -55,6 +56,7 @@ Dry commands are the safe discovery commands that do not create Modal
 resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -63,6 +65,7 @@ uv run sandbox quickstart
 
 The machine-readable CLI schema exposes the same concept under
 `lifecycle.dry_commands` and `lifecycle.safe_discovery_commands`.
+`uv run sandbox --dry` is an alias for `uv run sandbox dry`.
 
 ## Exec-Plan Check
 

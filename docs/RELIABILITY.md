@@ -6,6 +6,8 @@
 - Nonzero sandbox command exits are returned as `CommandResult.exit_code`, not raised.
 - CLI runtime and argument failures use JSON error envelopes.
 - Attached sandboxes detach on close; created sandboxes terminate on close.
+- `sandbox dry` and `sandbox --dry` expose safe discovery metadata without
+  creating Modal resources.
 - `sandbox schema` exposes golden workflows for safe discovery, short-lived
   execution, persistent workspace files, and long-lived reuse.
 - Snapshot commands require a workspace volume and report a JSON runtime error

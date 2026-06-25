@@ -8,10 +8,15 @@ The CLI command is `sandbox`. Commands print JSON except for `--help` and
 Dry commands are safe discovery commands. They do not create Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
 ```
+
+`sandbox dry` lists the safe discovery commands, the first live verification
+command, and local readiness checks as JSON. `sandbox --dry` is an alias for the
+same output.
 
 `sandbox schema` prints command metadata, output shapes, lifecycle notes, path
 rules, auth setup commands, and examples as JSON.
@@ -32,6 +37,7 @@ same first-run paths documented here.
 Dry commands / safe discovery, no Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart

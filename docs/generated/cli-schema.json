@@ -63,6 +63,25 @@
       },
       "summary": "Copy a sandbox file or directory to the local machine."
     },
+    "dry": {
+      "arguments": {},
+      "creates_sandbox": false,
+      "example": "sandbox dry",
+      "options": {
+        "global --dry": "Alias for this command when no subcommand is provided."
+      },
+      "output": {
+        "checks": "object",
+        "creates_modal_resources": "false",
+        "dry_commands": "string[]",
+        "live_command": "string",
+        "next_steps": "string[]",
+        "recommended_next_command": "string",
+        "safe_commands": "string[]",
+        "status": "string"
+      },
+      "summary": "List safe discovery commands that do not create Modal resources."
+    },
     "ls": {
       "arguments": {
         "path": "Directory path. Defaults to '.'."
@@ -322,6 +341,7 @@
   "golden_workflows": [
     {
       "commands": [
+        "sandbox dry",
         "sandbox schema",
         "sandbox doctor",
         "sandbox quickstart"
@@ -386,6 +406,7 @@
     "creates_or_attaches_per_command": true,
     "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
     "dry_commands": [
+      "dry",
       "schema",
       "doctor",
       "quickstart"
@@ -411,6 +432,7 @@
     "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
     "preflight_validation": "Invalid lifecycle combinations and global configuration are rejected before sandbox creation.",
     "safe_discovery_commands": [
+      "dry",
       "schema",
       "doctor",
       "quickstart"
@@ -425,6 +447,11 @@
     "workspace_escape": "Relative paths using '..' cannot escape the workspace."
   },
   "recommended_first_commands": [
+    {
+      "command": "sandbox dry",
+      "creates_modal_resources": false,
+      "purpose": "List safe discovery commands before taking action."
+    },
     {
       "command": "sandbox schema",
       "creates_modal_resources": false,

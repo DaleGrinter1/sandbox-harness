@@ -41,6 +41,11 @@ IMAGE_ALIASES = {
 
 RECOMMENDED_FIRST_COMMANDS = [
     {
+        "command": "sandbox dry",
+        "creates_modal_resources": False,
+        "purpose": "List safe discovery commands before taking action.",
+    },
+    {
         "command": "sandbox schema",
         "creates_modal_resources": False,
         "purpose": "Inspect the CLI contract before taking action.",
@@ -68,6 +73,7 @@ GOLDEN_WORKFLOWS = [
         "purpose": "Inspect local readiness before creating Modal resources.",
         "creates_modal_resources": False,
         "commands": [
+            "sandbox dry",
             "sandbox schema",
             "sandbox doctor",
             "sandbox quickstart",
@@ -257,6 +263,23 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {"requires --workspace-volume": "Snapshot checkpoints are backed by the workspace Modal volume."},
         "output": {"name": "string", "kind": "modal_volume", "workspace": "string", "status": "created"},
         "example": "sandbox --workspace-volume work snapshot",
+    },
+    "dry": {
+        "summary": "List safe discovery commands that do not create Modal resources.",
+        "creates_sandbox": False,
+        "arguments": {},
+        "options": {"global --dry": "Alias for this command when no subcommand is provided."},
+        "output": {
+            "status": "string",
+            "creates_modal_resources": "false",
+            "dry_commands": "string[]",
+            "safe_commands": "string[]",
+            "recommended_next_command": "string",
+            "live_command": "string",
+            "checks": "object",
+            "next_steps": "string[]",
+        },
+        "example": "sandbox dry",
     },
     "schema": {
         "summary": "Print this machine-readable CLI schema.",
@@ -791,6 +814,11 @@ def _live_quickstart_command() -> str:
     return "sandbox quickstart --run"
 
 
+def _dry_command_names() -> list[str]:
+    """Return dry command names that never create Modal resources."""
+    return ["dry", "schema", "doctor", "quickstart"]
+
+
 def _schema_payload() -> dict[str, object]:
     """Build the machine-readable CLI contract.
 
@@ -838,8 +866,8 @@ def _schema_payload() -> dict[str, object]:
         },
         "lifecycle": {
             "creates_or_attaches_per_command": True,
-            "dry_commands": ["schema", "doctor", "quickstart"],
-            "safe_discovery_commands": ["schema", "doctor", "quickstart"],
+            "dry_commands": _dry_command_names(),
+            "safe_discovery_commands": _dry_command_names(),
             "live_modal_commands": [
                 "quickstart --run",
                 "start",
@@ -875,6 +903,28 @@ def _schema_payload() -> dict[str, object]:
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
         "golden_workflows": GOLDEN_WORKFLOWS,
         "commands": COMMANDS_SCHEMA,
+    }
+
+
+def _dry_payload() -> dict[str, object]:
+    """Build safe-discovery command metadata without creating resources."""
+    modal_package = _modal_package_info()
+    credentials = _credential_status()
+    readiness = _readiness(modal_package, credentials)
+    return {
+        "status": "ready_to_run" if readiness["ready"] else "needs_setup",
+        "creates_modal_resources": False,
+        "dry_commands": _dry_command_names(),
+        "safe_commands": _safe_quickstart_commands(),
+        "recommended_next_command": "sandbox quickstart",
+        "live_command": _live_quickstart_command(),
+        "checks": {
+            "ready": readiness["ready"],
+            "modal_package": modal_package,
+            "credentials": credentials,
+            "problems": readiness["problems"],
+        },
+        "next_steps": readiness["next_steps"],
     }
 
 
@@ -979,6 +1029,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Machine-readable discovery:\n"
+            "  sandbox dry               List safe discovery commands as JSON.\n"
             "  sandbox schema            Print command metadata, output shapes, and examples as JSON.\n"
             "  sandbox doctor            Inspect local Modal setup without creating a sandbox.\n"
             "  sandbox quickstart        Preview the first live sandbox command as JSON.\n"
@@ -1017,9 +1068,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-output-bytes", type=_non_negative_int, default=10 * 1024 * 1024)
     parser.add_argument("--encrypted-port", type=_port, action="append", default=[], metavar="PORT")
     parser.add_argument("--unencrypted-port", type=_port, action="append", default=[], metavar="PORT")
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="List safe discovery commands without creating Modal resources.",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
 
-    subparsers = parser.add_subparsers(dest="command_name", required=True, parser_class=JsonArgumentParser)
+    subparsers = parser.add_subparsers(dest="command_name", parser_class=JsonArgumentParser)
 
     subparsers.add_parser("start", help="Create a sandbox, print its ID, and leave it running.")
 
@@ -1084,6 +1140,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("snapshot", help="Create a volume-backed workspace snapshot checkpoint.")
 
+    subparsers.add_parser("dry", help="List safe discovery commands that do not create Modal resources.")
+
     subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
 
     subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
@@ -1119,7 +1177,20 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.dry:
+        if args.command_name is not None:
+            parser.error("--dry cannot be combined with a subcommand; use `sandbox dry`")
+        _print_json(_dry_payload())
+        return 0
+    if args.command_name is None:
+        parser.error("a command is required")
+
     _preflight_args(args, parser)
+
+    if args.command_name == "dry":
+        _print_json(_dry_payload())
+        return 0
 
     if args.command_name == "schema":
         _print_json(_schema_payload())

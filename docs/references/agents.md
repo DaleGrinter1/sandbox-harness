@@ -9,6 +9,7 @@ dry commands and how to use active execution-plan state.
 Use the dry-command safe discovery sequence before creating Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart

@@ -7,8 +7,8 @@ Sandbox workflows through the JSON-first `sandbox` CLI.
 
 ## User Goals
 
-- Users can inspect `sandbox schema`, `sandbox doctor`, and `sandbox quickstart`
-  without creating Modal resources.
+- Users can inspect `sandbox dry`, `sandbox schema`, `sandbox doctor`, and
+  `sandbox quickstart` without creating Modal resources.
 - Users can run one short-lived command and inspect a JSON `CommandResult`.
 - Users can persist files across sandbox lifetimes with `--workspace-volume`.
 - Users can start a reusable sandbox, attach with `--sandbox-id`, and stop it.
@@ -16,10 +16,12 @@ Sandbox workflows through the JSON-first `sandbox` CLI.
 ## Behavior
 
 - CLI output is JSON except for `--help` and `--version`.
+- `sandbox dry` and `sandbox --dry` expose safe discovery commands without
+  creating Modal resources.
 - `sandbox schema` exposes command metadata, lifecycle notes, auth guidance,
   and `golden_workflows`.
-- `schema`, `doctor`, and `quickstart` without `--run` do not instantiate
-  `Sandbox`.
+- `dry`, `schema`, `doctor`, and `quickstart` without `--run` do not
+  instantiate `Sandbox`.
 - Operational commands create or attach to one sandbox, perform one operation,
   and close according to ownership semantics.
 - Invalid lifecycle combinations are rejected before sandbox creation.
@@ -35,6 +37,7 @@ Sandbox workflows through the JSON-first `sandbox` CLI.
 ## Examples
 
 ```bash
+sandbox dry
 sandbox schema
 sandbox doctor
 sandbox quickstart

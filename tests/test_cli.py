@@ -849,6 +849,10 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["commands"]["run-command"]["output"]["stdout"] == "string"
     assert payload["commands"]["domain"]["output"] == {"port": "integer", "url": "string"}
     assert payload["commands"]["snapshot"]["output"]["kind"] == "modal_volume"
+    assert payload["commands"]["dry"]["creates_sandbox"] is False
+    assert payload["commands"]["dry"]["output"]["status"] == "string"
+    assert payload["commands"]["dry"]["output"]["dry_commands"] == "string[]"
+    assert payload["commands"]["dry"]["output"]["next_steps"] == "string[]"
     assert payload["commands"]["quickstart"]["creates_sandbox"] is False
     assert payload["commands"]["quickstart"]["output"]["quickstart_command"] == "string"
     assert payload["commands"]["quickstart"]["output"]["quickstart"] == "object when --run is used"
@@ -884,24 +888,26 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
         "Invalid lifecycle combinations and global configuration are rejected before sandbox creation."
     )
     assert payload["image_aliases"]["py313"] == "python:3.13-slim"
-    assert payload["recommended_first_commands"][0]["command"] == "sandbox schema"
+    assert payload["recommended_first_commands"][0]["command"] == "sandbox dry"
+    assert payload["recommended_first_commands"][1]["command"] == "sandbox schema"
     assert payload["recommended_first_commands"][-1]["command"] == "sandbox quickstart --run"
     assert payload["golden_workflows"][0] == {
         "id": "safe_first_run",
         "purpose": "Inspect local readiness before creating Modal resources.",
         "creates_modal_resources": False,
-        "commands": ["sandbox schema", "sandbox doctor", "sandbox quickstart"],
+        "commands": ["sandbox dry", "sandbox schema", "sandbox doctor", "sandbox quickstart"],
         "success_signal": "quickstart reports ready_to_run or gives setup next steps.",
     }
     persistent_workflow = payload["golden_workflows"][2]
     assert persistent_workflow["id"] == "persistent_workspace_files"
     assert "sandbox --image py313 --workspace-volume work snapshot" in persistent_workflow["commands"]
-    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
     assert "run-command" in payload["lifecycle"]["live_modal_commands"]
     assert "domain" in payload["lifecycle"]["live_modal_commands"]
     assert "snapshot" in payload["lifecycle"]["live_modal_commands"]
-    assert payload["lifecycle"]["dry_commands"] == ["schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
+    assert payload["commands"]["dry"]["creates_sandbox"] is False
     assert payload["commands"]["schema"]["creates_sandbox"] is False
     assert payload["commands"]["doctor"]["creates_sandbox"] is False
     assert payload["auth"]["setup_commands"][0] == "modal setup"
@@ -933,6 +939,7 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "download",
         "domain",
         "snapshot",
+        "dry",
         "schema",
         "doctor",
         "quickstart",
@@ -945,10 +952,10 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "relative_paths": "Resolved inside the sandbox workspace.",
         "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
     }
-    assert payload["lifecycle"]["safe_discovery_commands"] == ["schema", "doctor", "quickstart"]
-    assert payload["lifecycle"]["dry_commands"] == ["schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["safe_discovery_commands"] == ["dry", "schema", "doctor", "quickstart"]
+    assert payload["lifecycle"]["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert set(payload["lifecycle"]["live_modal_commands"]) == (
-        expected_commands - {"schema", "doctor", "quickstart"} | {"quickstart --run"}
+        expected_commands - {"dry", "schema", "doctor", "quickstart"} | {"quickstart --run"}
     )
     assert [workflow["id"] for workflow in payload["golden_workflows"]] == [
         "safe_first_run",
@@ -974,7 +981,7 @@ def test_generated_cli_schema_matches_runtime_contract() -> None:
     assert generated_schema == cli._schema_payload()
 
 
-@pytest.mark.parametrize("argv", [["schema"], ["doctor"], ["quickstart"]])
+@pytest.mark.parametrize("argv", [["--dry"], ["dry"], ["schema"], ["doctor"], ["quickstart"]])
 def test_safe_discovery_commands_never_create_sandboxes(monkeypatch, capsys, tmp_path, argv) -> None:
     FakeSandbox.create_calls = []
     FakeSandbox.instances = []
@@ -990,6 +997,32 @@ def test_safe_discovery_commands_never_create_sandboxes(monkeypatch, capsys, tmp
 
     payload = json.loads(capsys.readouterr().out)
     assert payload
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_dry_outputs_discovery_metadata_without_creating_sandbox(monkeypatch, capsys, tmp_path) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = True
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    exit_code = cli.main(["--dry"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "needs_setup"
+    assert payload["creates_modal_resources"] is False
+    assert payload["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
+    assert payload["safe_commands"] == ["sandbox dry", "sandbox schema", "sandbox doctor", "sandbox quickstart"]
+    assert payload["recommended_next_command"] == "sandbox quickstart"
+    assert payload["live_command"] == "sandbox quickstart --run"
+    assert payload["checks"]["ready"] is False
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -1152,7 +1185,7 @@ def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp
     assert payload["status"] == "needs_setup"
     assert payload["creates_modal_resources"] is False
     assert payload["checks"]["ready"] is False
-    assert payload["safe_commands"] == ["sandbox schema", "sandbox doctor", "sandbox quickstart"]
+    assert payload["safe_commands"] == ["sandbox dry", "sandbox schema", "sandbox doctor", "sandbox quickstart"]
     assert payload["live_command"] == "sandbox quickstart --run"
     assert payload["quickstart_command"] == "python -c 'print(123)'"
     assert FakeSandbox.create_calls == []
