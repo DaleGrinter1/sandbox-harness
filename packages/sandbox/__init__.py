@@ -12,9 +12,14 @@ from .files import SandboxFile
 from .images import Images
 from .sandbox import Sandbox
 from .types import (
+    ReadinessProbeSpec,
     RuntimeSpec,
     SandboxConfig,
+    SandboxFileStat,
+    SandboxImageSnapshot,
+    SandboxReadinessProbe,
     SandboxSnapshot,
+    SandboxWatchEvent,
 )
 from .volumes import SandboxVolume
 
@@ -22,6 +27,7 @@ __all__ = [
     "CommandResult",
     "Images",
     "ModalAuthenticationError",
+    "ReadinessProbeSpec",
     "RuntimeSpec",
     "Sandbox",
     "SandboxCommand",
@@ -29,8 +35,12 @@ __all__ = [
     "SandboxConfig",
     "SandboxError",
     "SandboxFile",
+    "SandboxFileStat",
+    "SandboxImageSnapshot",
+    "SandboxReadinessProbe",
     "SandboxNotFoundError",
     "SandboxProviderError",
     "SandboxSnapshot",
     "SandboxVolume",
+    "SandboxWatchEvent",
 ]

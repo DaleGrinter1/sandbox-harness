@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 from sandbox.errors import ModalAuthenticationError, SandboxNotFoundError, SandboxProviderError
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path, sandbox_workdir
-from sandbox.types import SandboxConfig
+from sandbox.types import SandboxConfig, SandboxReadinessProbe
 from sandbox.volumes import SandboxVolume
 
 
@@ -73,6 +74,30 @@ class FakeFilesystem:
     def copy_to_local(self, remote_path: str, local_path: object) -> None:
         self.calls.append(("copy_to_local", remote_path, str(local_path)))
 
+    def stat(self, remote_path: str) -> SimpleNamespace:
+        self.calls.append(("stat", remote_path))
+        return SimpleNamespace(
+            type=SimpleNamespace(value="file"),
+            size=12,
+            permissions="644",
+            modified_time=datetime(2026, 6, 25, 1, 2, 3, tzinfo=UTC),
+        )
+
+    def watch(
+        self,
+        remote_path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: object = None,
+    ) -> list[SimpleNamespace]:
+        self.calls.append(("watch", remote_path, recursive, timeout, filter))
+        return [
+            SimpleNamespace(path=f"{remote_path}/game.py", type=SimpleNamespace(value="Modify")),
+            SimpleNamespace(src_path=f"{remote_path}/data.bin", event_type="Create"),
+            SimpleNamespace(paths=[f"{remote_path}/renamed.py", f"{remote_path}/renamed-old.py"], type="Modify"),
+        ]
+
 
 class FakeSandboxObject:
     def __init__(self) -> None:
@@ -89,6 +114,11 @@ class FakeSandboxObject:
         self.terminate_calls = 0
         self.detach_calls = 0
         self.tunnel_map: dict[int, object] = {3000: SimpleNamespace(url="https://sandbox.example")}
+        self.snapshot_filesystem_calls: list[tuple[int, int | None]] = []
+        self.snapshot_directory_calls: list[tuple[str, int, int | None]] = []
+        self.mount_image_calls: list[tuple[str, object]] = []
+        self.unmount_image_calls: list[str] = []
+        self.wait_ready_calls: list[int] = []
 
     def exec(self, *args: object, **kwargs: object) -> FakeProcess:
         if self.raise_auth_error_on_exec:
@@ -111,11 +141,34 @@ class FakeSandboxObject:
         self.detach_calls += 1
         self.detached = True
 
+    def snapshot_filesystem(self, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600) -> SimpleNamespace:
+        self.snapshot_filesystem_calls.append((timeout, ttl))
+        return SimpleNamespace(object_id="im-filesystem")
+
+    def snapshot_directory(
+        self, remote_path: str, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600
+    ) -> SimpleNamespace:
+        self.snapshot_directory_calls.append((remote_path, timeout, ttl))
+        return SimpleNamespace(object_id="im-directory")
+
+    def mount_image(self, remote_path: str, image: object) -> None:
+        self.mount_image_calls.append((remote_path, image))
+
+    def unmount_image(self, remote_path: str) -> None:
+        self.unmount_image_calls.append(remote_path)
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        self.wait_ready_calls.append(timeout)
+
 
 class FakeImage:
     @staticmethod
     def from_registry(tag: str) -> tuple[str, str]:
         return ("image", tag)
+
+    @staticmethod
+    def from_id(image_id: str) -> tuple[str, str]:
+        return ("image-id", image_id)
 
 
 class FakeVolume:
@@ -132,6 +185,16 @@ class FakeVolume:
 
     def commit(self) -> None:
         self.commits.append(self.name)
+
+
+class FakeProbe:
+    @staticmethod
+    def with_tcp(port: int, *, interval_ms: int = 100) -> tuple[str, int, int]:
+        return ("tcp-probe", port, interval_ms)
+
+    @staticmethod
+    def with_exec(*argv: str, interval_ms: int = 100) -> tuple[str, tuple[str, ...], int]:
+        return ("exec-probe", argv, interval_ms)
 
 
 class FakeApp:
@@ -189,6 +252,7 @@ class FakeModal:
     App = FakeApp
     Image = FakeImage
     Volume = FakeVolume
+    Probe = FakeProbe
     Sandbox = FakeModalSandbox
     exception = SimpleNamespace(AuthError=FakeAuthError, NotFoundError=FakeNotFoundError)
 
@@ -271,6 +335,43 @@ def test_create_resolves_image_and_volume_options(monkeypatch) -> None:
     assert kwargs["inbound_cidr_allowlist"] == ["203.0.113.0/24"]
     assert kwargs["encrypted_ports"] == [3000]
     assert kwargs["unencrypted_ports"] == [9229]
+
+
+def test_create_resolves_tcp_readiness_probe(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+
+    ModalSandboxProvider.create(
+        SandboxConfig(
+            readiness_probe=SandboxReadinessProbe.tcp(3000, interval_ms=250),
+        )
+    )
+
+    assert FakeModalSandbox.created_kwargs["readiness_probe"] == ("tcp-probe", 3000, 250)
+
+
+def test_create_resolves_exec_readiness_probe(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+
+    ModalSandboxProvider.create(
+        SandboxConfig(
+            readiness_probe=SandboxReadinessProbe.exec(["sh", "-c", "test -f /tmp/ready"], interval_ms=500),
+        )
+    )
+
+    assert FakeModalSandbox.created_kwargs["readiness_probe"] == (
+        "exec-probe",
+        ("sh", "-c", "test -f /tmp/ready"),
+        500,
+    )
+
+
+def test_create_passes_modal_probe_objects_through(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    probe = object()
+
+    ModalSandboxProvider.create(SandboxConfig(readiness_probe=probe))
+
+    assert FakeModalSandbox.created_kwargs["readiness_probe"] is probe
 
 
 def test_create_passes_modal_image_objects_through(monkeypatch) -> None:
@@ -594,6 +695,104 @@ def test_create_snapshot_requires_string_workspace_volume(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="workspace volume"):
         provider.create_snapshot()
+
+
+def test_modal_native_snapshot_helpers_return_json_friendly_metadata(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    filesystem_snapshot = provider.snapshot_filesystem(timeout=7, ttl=None)
+    directory_snapshot = provider.snapshot_directory("src", timeout=8, ttl=60)
+
+    assert filesystem_snapshot.to_dict() == {
+        "image_id": "im-filesystem",
+        "kind": "modal_filesystem",
+        "path": None,
+        "ttl_seconds": None,
+    }
+    assert directory_snapshot.to_dict() == {
+        "image_id": "im-directory",
+        "kind": "modal_directory",
+        "path": "/workspace/src",
+        "ttl_seconds": 60,
+    }
+    assert provider._sandbox.snapshot_filesystem_calls == [(7, None)]
+    assert provider._sandbox.snapshot_directory_calls == [("/workspace/src", 8, 60)]
+
+
+def test_mount_and_unmount_image_use_modal_image_id_resolution(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    snapshot = provider.snapshot_filesystem()
+    provider.mount_image("snapshots/src", snapshot)
+    provider.unmount_image("snapshots/src")
+
+    assert provider._sandbox.mount_image_calls == [("/workspace/snapshots/src", ("image-id", "im-filesystem"))]
+    assert provider._sandbox.unmount_image_calls == ["/workspace/snapshots/src"]
+
+
+def test_mount_image_rejects_root_mount(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(workspace="/"))
+
+    with pytest.raises(ValueError, match="must not be '/'"):
+        provider.mount_image(".", "im-123")
+
+
+def test_stat_and_watch_return_normalized_filesystem_metadata(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    stat = provider.stat("game.py")
+    events = provider.watch(".", recursive=True, timeout=5)
+
+    assert stat.to_dict() == {
+        "kind": "file",
+        "modified_time": "2026-06-25T01:02:03+00:00",
+        "path": "/workspace/game.py",
+        "permissions": "644",
+        "size": 12,
+    }
+    assert [event.to_dict() for event in events] == [
+        {"event_type": "Modify", "path": "/workspace/game.py"},
+        {"event_type": "Create", "path": "/workspace/data.bin"},
+        {"event_type": "Modify", "path": "/workspace/renamed.py"},
+        {"event_type": "Modify", "path": "/workspace/renamed-old.py"},
+    ]
+    assert ("stat", "/workspace/game.py") in provider._sandbox.filesystem.calls
+    assert ("watch", "/workspace", True, 5, None) in provider._sandbox.filesystem.calls
+
+
+def test_sync_workspace_runs_argv_sync_for_workspace_volume(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(volumes=(SandboxVolume.workspace("workspace-volume"),)))
+
+    result = provider.sync_workspace()
+
+    assert result.command == "sync /workspace"
+    assert result.exit_code == 0
+    assert provider._sandbox.exec_calls[-1] == (
+        ("sync", "/workspace"),
+        {"timeout": 30, "workdir": "/workspace", "env": None},
+    )
+
+
+def test_sync_workspace_requires_workspace_volume(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    with pytest.raises(ValueError, match="workspace volume"):
+        provider.sync_workspace()
+
+
+def test_wait_until_ready_delegates_to_modal_sandbox(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig(readiness_probe=SandboxReadinessProbe.tcp(3000)))
+
+    provider.wait_until_ready(timeout=45)
+
+    assert provider._sandbox.wait_ready_calls == [45]
 
 
 def test_run_auth_error_guides_user_through_modal_setup(monkeypatch) -> None:

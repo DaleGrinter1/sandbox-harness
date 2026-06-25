@@ -1,6 +1,9 @@
 # Product Sense
 
-`modal-sandbox-sdk` helps developers and coding agents run short-lived or reusable Modal Sandboxes from Python and shell scripts.
+`modal-sandbox-sdk` helps developers and coding agents run short-lived or
+reusable Modal Sandboxes from Python and shell scripts. It is a lightweight
+helper around common Modal Sandbox workflows, not a replacement for Modal's
+backend or full SDK.
 
 ## Target Users
 
@@ -15,3 +18,4 @@
 3. Make persistence explicit through volumes.
 4. Keep command and file behavior predictable for agents.
 5. Preserve a small public API.
+6. Add Modal-native helpers only when they clarify common workflows.

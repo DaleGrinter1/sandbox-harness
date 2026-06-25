@@ -10,7 +10,7 @@
       "modal setup",
       "python -m modal setup",
       "modal token new",
-      "modal token set --token-id <token id> --token-secret <token secret>"
+      "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment for non-interactive use."
     ]
   },
   "commands": {
@@ -110,6 +110,21 @@
         "status": "created"
       },
       "summary": "Create a directory inside the sandbox workspace."
+    },
+    "mount-image": {
+      "arguments": {
+        "image_id": "Modal image object ID.",
+        "path": "Mount path inside the sandbox."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --sandbox-id sb-abc123 mount-image project im-abc123",
+      "options": {},
+      "output": {
+        "image_id": "string",
+        "path": "string",
+        "status": "mounted"
+      },
+      "summary": "Mount a Modal image snapshot inside the sandbox."
     },
     "quickstart": {
       "arguments": {},
@@ -229,6 +244,53 @@
       },
       "summary": "Print this machine-readable CLI schema."
     },
+    "seed-git": {
+      "arguments": {
+        "url": "Public HTTP(S) Git repository URL."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --workspace-volume work seed-git https://github.com/org/repo.git --dest .",
+      "options": {
+        "--depth N": "Clone depth. Use 0 for a full clone.",
+        "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
+        "--ref REF": "Optional branch or tag."
+      },
+      "output": {
+        "command": "string",
+        "duration_ms": "integer",
+        "exit_code": "integer|null",
+        "max_output_bytes": "integer|null",
+        "stderr": "string",
+        "stderr_truncated": "boolean",
+        "stdout": "string",
+        "stdout_truncated": "boolean",
+        "timed_out": "boolean"
+      },
+      "summary": "Clone a public Git repository into the sandbox."
+    },
+    "seed-tarball": {
+      "arguments": {
+        "url": "Public HTTP(S) tarball URL."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --workspace-volume work seed-tarball https://example.com/source.tar.gz",
+      "options": {
+        "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
+        "--strip-components N": "Leading archive path components to remove."
+      },
+      "output": {
+        "command": "string",
+        "duration_ms": "integer",
+        "exit_code": "integer|null",
+        "max_output_bytes": "integer|null",
+        "stderr": "string",
+        "stderr_truncated": "boolean",
+        "stdout": "string",
+        "stdout_truncated": "boolean",
+        "timed_out": "boolean"
+      },
+      "summary": "Download and extract a public tarball into the sandbox."
+    },
     "snapshot": {
       "arguments": {},
       "creates_sandbox": true,
@@ -244,14 +306,51 @@
       },
       "summary": "Create a volume-backed workspace snapshot checkpoint."
     },
+    "snapshot-directory": {
+      "arguments": {
+        "path": "Relative workspace path or absolute sandbox path."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox snapshot-directory . --ttl 604800",
+      "options": {
+        "--no-ttl": "Keep the snapshot indefinitely.",
+        "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
+        "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry."
+      },
+      "output": {
+        "image_id": "string",
+        "kind": "modal_directory",
+        "path": "string",
+        "ttl_seconds": "integer|null"
+      },
+      "summary": "Create a Modal-native directory image snapshot."
+    },
+    "snapshot-filesystem": {
+      "arguments": {},
+      "creates_sandbox": true,
+      "example": "sandbox snapshot-filesystem --ttl 604800",
+      "options": {
+        "--no-ttl": "Keep the snapshot indefinitely.",
+        "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
+        "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry."
+      },
+      "output": {
+        "image_id": "string",
+        "kind": "modal_filesystem",
+        "path": "null",
+        "ttl_seconds": "integer|null"
+      },
+      "summary": "Create a Modal-native filesystem image snapshot."
+    },
     "start": {
       "arguments": {},
       "creates_sandbox": true,
       "example": "sandbox --image python:3.13-slim --name agent-workspace start",
       "options": {
-        "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, and timeout flags."
+        "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, readiness probes, and timeout flags."
       },
       "output": {
+        "ready": "boolean when --wait-ready is used",
         "sandbox_id": "string",
         "sandbox_timeout": "integer",
         "status": "started",
@@ -260,6 +359,22 @@
         "workspace": "string"
       },
       "summary": "Create a Modal sandbox, print its ID, and leave it running."
+    },
+    "stat": {
+      "arguments": {
+        "path": "Relative workspace path or absolute sandbox path."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --workspace-volume work stat app.py",
+      "options": {},
+      "output": {
+        "kind": "string",
+        "modified_time": "string|null",
+        "path": "string",
+        "permissions": "string|null",
+        "size": "integer|null"
+      },
+      "summary": "Return metadata for a sandbox filesystem path."
     },
     "stop": {
       "arguments": {
@@ -277,6 +392,39 @@
       },
       "summary": "Terminate a running Modal sandbox by ID or name."
     },
+    "sync": {
+      "arguments": {},
+      "creates_sandbox": true,
+      "example": "sandbox --workspace-volume work sync",
+      "options": {
+        "requires --workspace-volume": "Workspace sync requires a named workspace Modal volume."
+      },
+      "output": {
+        "command": "string",
+        "duration_ms": "integer",
+        "exit_code": "integer|null",
+        "max_output_bytes": "integer|null",
+        "stderr": "string",
+        "stderr_truncated": "boolean",
+        "stdout": "string",
+        "stdout_truncated": "boolean",
+        "timed_out": "boolean"
+      },
+      "summary": "Persist workspace-volume changes without waiting for sandbox termination."
+    },
+    "unmount-image": {
+      "arguments": {
+        "path": "Mount path inside the sandbox."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --sandbox-id sb-abc123 unmount-image project",
+      "options": {},
+      "output": {
+        "path": "string",
+        "status": "unmounted"
+      },
+      "summary": "Unmount a Modal image snapshot from the sandbox."
+    },
     "upload": {
       "arguments": {
         "local_path": "Path on the local machine.",
@@ -291,6 +439,41 @@
         "status": "uploaded"
       },
       "summary": "Copy a local file or directory into the sandbox."
+    },
+    "wait-ready": {
+      "arguments": {},
+      "creates_sandbox": false,
+      "example": "sandbox --sandbox-id sb-abc123 wait-ready --timeout 60",
+      "options": {
+        "--timeout": "Maximum seconds to wait for readiness.",
+        "requires --sandbox-id or --sandbox-name": "Attach to a sandbox that was created with a readiness probe."
+      },
+      "output": {
+        "sandbox_id": "string|null",
+        "sandbox_name": "string|null",
+        "status": "ready",
+        "timeout": "integer"
+      },
+      "summary": "Wait for an existing sandbox readiness probe to report ready."
+    },
+    "watch": {
+      "arguments": {
+        "path": "Relative workspace path or absolute sandbox path."
+      },
+      "creates_sandbox": true,
+      "example": "sandbox --sandbox-id sb-abc123 watch . --timeout 5",
+      "options": {
+        "--event TYPE": "Event type filter. Repeatable.",
+        "--recursive": "Watch nested subdirectories.",
+        "--timeout": "Required timeout in seconds. The CLI consumes events until the timeout elapses."
+      },
+      "output": {
+        "events": "object[]",
+        "path": "string",
+        "recursive": "boolean",
+        "timeout": "integer"
+      },
+      "summary": "Watch a sandbox path for filesystem changes and return bounded JSON events."
     },
     "write": {
       "arguments": {
@@ -326,6 +509,10 @@
     "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
     "--memory": "Memory request in MiB passed through to Modal.",
     "--name": "Name assigned to a newly created sandbox. Unique within the app while running.",
+    "--readiness-exec COMMAND": "Create a sandbox with a Modal exec readiness probe parsed into argv.",
+    "--readiness-interval-ms": "Readiness probe polling interval in milliseconds. Defaults to 100.",
+    "--readiness-tcp PORT": "Create a sandbox with a Modal TCP readiness probe.",
+    "--ready-timeout": "Maximum seconds to wait when --wait-ready is used. Defaults to 300.",
     "--region": "Region preference passed through to Modal.",
     "--runtime": "Vercel-style runtime alias. Supported values: python3.13, node24, node22.",
     "--sandbox-id": "Attach to an existing Modal sandbox by ID instead of creating one.",
@@ -335,6 +522,7 @@
     "--timeout": "Command timeout in seconds for run.",
     "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
     "--volume NAME:/mount": "Modal volume name and absolute sandbox mount path. Repeatable.",
+    "--wait-ready": "Wait for readiness before running an operational command.",
     "--workspace": "Default sandbox directory for relative paths.",
     "--workspace-volume": "Modal volume name mounted at the workspace path."
   },
@@ -366,12 +554,13 @@
         "sandbox --image py313 --workspace-volume work write app.py --content \"print(123)\"",
         "sandbox --image py313 --workspace-volume work run \"python app.py\"",
         "sandbox --image py313 --workspace-volume work read app.py",
-        "sandbox --image py313 --workspace-volume work snapshot"
+        "sandbox --image py313 --workspace-volume work snapshot",
+        "sandbox --image py313 --workspace-volume work sync"
       ],
       "creates_modal_resources": true,
       "id": "persistent_workspace_files",
       "purpose": "Preserve files across separate CLI calls using a Modal workspace volume.",
-      "success_signal": "read returns the file content and snapshot names the workspace volume."
+      "success_signal": "read returns the file content, snapshot names the workspace volume, and sync exits 0."
     },
     {
       "commands": [
@@ -425,7 +614,17 @@
       "upload",
       "download",
       "domain",
-      "snapshot"
+      "wait-ready",
+      "snapshot",
+      "snapshot-filesystem",
+      "snapshot-directory",
+      "mount-image",
+      "unmount-image",
+      "stat",
+      "watch",
+      "sync",
+      "seed-git",
+      "seed-tarball"
     ],
     "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
     "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
@@ -474,5 +673,5 @@
     }
   ],
   "schema_version": "1",
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

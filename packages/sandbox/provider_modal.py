@@ -6,6 +6,8 @@ import os
 import shlex
 import time
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
+from importlib import import_module
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, Protocol, TypeVar
 
@@ -14,7 +16,11 @@ from .errors import ModalAuthenticationError, SandboxConfigurationError, Sandbox
 from .types import (
     ImageSpec,
     SandboxConfig,
+    SandboxFileStat,
+    SandboxImageSnapshot,
+    SandboxReadinessProbe,
     SandboxSnapshot,
+    SandboxWatchEvent,
 )
 from .volumes import SandboxVolume, VolumeSpec
 
@@ -28,7 +34,6 @@ Run one of these commands to sign in:
 
 For non-interactive environments, configure a Modal token instead:
   modal token new
-  modal token set --token-id <token id> --token-secret <token secret>
 
 You can also provide credentials with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.
 After setup completes, retry your sandbox command."""
@@ -239,6 +244,47 @@ class SandboxProvider(Protocol):
         Returns:
             Snapshot metadata for the mounted workspace volume.
         """
+        ...
+
+    def snapshot_filesystem(self, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600) -> SandboxImageSnapshot:
+        """Snapshot the sandbox filesystem into a Modal image."""
+        ...
+
+    def snapshot_directory(
+        self, path: str, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600
+    ) -> SandboxImageSnapshot:
+        """Snapshot a sandbox directory into a Modal image."""
+        ...
+
+    def mount_image(self, path: str, image: SandboxImageSnapshot | str | object) -> None:
+        """Mount a Modal image snapshot inside the sandbox."""
+        ...
+
+    def unmount_image(self, path: str) -> None:
+        """Unmount a Modal image snapshot from the sandbox."""
+        ...
+
+    def stat(self, path: str) -> SandboxFileStat:
+        """Return metadata for a sandbox path."""
+        ...
+
+    def watch(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: Sequence[str] | None = None,
+    ) -> Sequence[SandboxWatchEvent]:
+        """Return filesystem watch events for a sandbox path."""
+        ...
+
+    def sync_workspace(self) -> CommandResult:
+        """Persist workspace-volume changes without waiting for termination."""
+        ...
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        """Wait until Modal reports the sandbox readiness probe has passed."""
         ...
 
     def close(self) -> None:
@@ -502,6 +548,10 @@ class ModalSandboxProvider:
             volumes = _resolve_volumes(modal, volumes=config.volumes)
             if volumes:
                 create_kwargs["volumes"] = volumes
+
+            readiness_probe = _resolve_readiness_probe(modal, config.readiness_probe)
+            if readiness_probe is not None:
+                create_kwargs["readiness_probe"] = readiness_probe
 
             optional_kwargs = {
                 "name": config.name,
@@ -1012,6 +1062,111 @@ class ModalSandboxProvider:
 
         return SandboxSnapshot(name=workspace_volume, kind="modal_volume", workspace=self.config.workspace)
 
+    def snapshot_filesystem(self, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600) -> SandboxImageSnapshot:
+        """Snapshot the sandbox filesystem into a Modal image.
+
+        Args:
+            timeout: Maximum seconds to wait for Modal's snapshot operation.
+            ttl: Snapshot retention in seconds, or `None` for no expiry.
+
+        Returns:
+            JSON-friendly Modal image snapshot metadata.
+        """
+        image = self._modal_call(
+            lambda: self._sandbox.snapshot_filesystem(timeout=timeout, ttl=ttl),
+            context="snapshotting Modal sandbox filesystem",
+        )
+        return _image_snapshot_metadata(image, kind="modal_filesystem", path=None, ttl=ttl)
+
+    def snapshot_directory(
+        self, path: str, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600
+    ) -> SandboxImageSnapshot:
+        """Snapshot a sandbox directory into a Modal image.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+            timeout: Maximum seconds to wait for Modal's snapshot operation.
+            ttl: Snapshot retention in seconds, or `None` for no expiry.
+
+        Returns:
+            JSON-friendly Modal image snapshot metadata.
+        """
+        remote_path = sandbox_path(path, self.config.workspace)
+        image = self._modal_call(
+            lambda: self._sandbox.snapshot_directory(remote_path, timeout=timeout, ttl=ttl),
+            context=f"snapshotting Modal sandbox directory {remote_path}",
+        )
+        return _image_snapshot_metadata(image, kind="modal_directory", path=remote_path, ttl=ttl)
+
+    def mount_image(self, path: str, image: SandboxImageSnapshot | str | object) -> None:
+        """Mount a Modal image at a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox mount path.
+            image: Modal image object, image ID, or SDK image snapshot metadata.
+        """
+        remote_path = sandbox_path(path, self.config.workspace)
+        if remote_path == "/":
+            raise SandboxConfigurationError("mount_image path must not be '/'.")
+        self._modal_call(
+            lambda: self._sandbox.mount_image(remote_path, _resolve_mount_image(image)),
+            context=f"mounting image at {remote_path}",
+        )
+
+    def unmount_image(self, path: str) -> None:
+        """Unmount a Modal image from a sandbox path."""
+        remote_path = sandbox_path(path, self.config.workspace)
+        self._modal_call(lambda: self._sandbox.unmount_image(remote_path), context=f"unmounting image at {remote_path}")
+
+    def stat(self, path: str) -> SandboxFileStat:
+        """Return metadata for a sandbox filesystem path."""
+        remote_path = sandbox_path(path, self.config.workspace)
+        info = self._modal_call(lambda: self.filesystem.stat(remote_path), context=f"stating {remote_path}")
+        return _file_stat_metadata(info, path=remote_path)
+
+    def watch(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: Sequence[str] | None = None,
+    ) -> list[SandboxWatchEvent]:
+        """Return filesystem watch events for a sandbox path.
+
+        The provider consumes Modal's iterator into a list so the CLI can emit
+        a bounded JSON response when `timeout` is provided.
+        """
+        remote_path = sandbox_path(path, self.config.workspace)
+        resolved_filter = _resolve_watch_filters(filter)
+        try:
+            events = self.filesystem.watch(
+                remote_path,
+                recursive=recursive,
+                timeout=timeout,
+                filter=resolved_filter,
+            )
+            normalized_events: list[SandboxWatchEvent] = []
+            for event in events:
+                normalized_events.extend(_file_watch_events(event))
+            return normalized_events
+        except Exception as exc:
+            _translate_modal_auth_error(exc)
+            _raise_provider_error(exc, context=f"watching {remote_path}")
+
+    def sync_workspace(self) -> CommandResult:
+        """Persist workspace-volume changes without waiting for termination."""
+        if _workspace_volume_name(self.config) is None:
+            raise SandboxConfigurationError("sync_workspace requires a string workspace volume.")
+        return self.run_command("sync", [self.config.workspace])
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        """Wait until the sandbox readiness probe succeeds."""
+        self._modal_call(
+            lambda: self._sandbox.wait_until_ready(timeout=timeout),
+            context="waiting for Modal sandbox readiness",
+        )
+
     def close(self) -> None:
         """Terminate or detach from the Modal sandbox.
 
@@ -1067,6 +1222,21 @@ def _resolve_volumes(
     return resolved
 
 
+def _resolve_readiness_probe(modal: Any, probe: object | None) -> object | None:
+    """Resolve a public readiness probe spec into a Modal Probe object."""
+    if probe is None:
+        return None
+    if isinstance(probe, SandboxReadinessProbe):
+        if probe.kind == "tcp":
+            if probe.port is None:
+                raise SandboxConfigurationError("TCP readiness probe requires a port.")
+            return modal.Probe.with_tcp(probe.port, interval_ms=probe.interval_ms)
+        if probe.kind == "exec":
+            return modal.Probe.with_exec(*probe.command, interval_ms=probe.interval_ms)
+        raise SandboxConfigurationError(f"Unsupported readiness probe kind {probe.kind!r}.")
+    return probe
+
+
 def _workspace_volume_name(config: SandboxConfig) -> str | None:
     """Find the named volume mounted at the configured workspace.
 
@@ -1083,6 +1253,90 @@ def _workspace_volume_name(config: SandboxConfig) -> str | None:
         if mount_path == workspace and isinstance(volume.volume, str):
             return volume.volume
     return None
+
+
+def _image_snapshot_metadata(
+    image: object,
+    *,
+    kind: str,
+    path: str | None,
+    ttl: int | None,
+) -> SandboxImageSnapshot:
+    """Normalize a Modal image snapshot object into SDK metadata."""
+    image_id = getattr(image, "object_id", None) or getattr(image, "image_id", None)
+    if image_id is None:
+        raise SandboxProviderError("Modal snapshot image did not expose an object ID.")
+    return SandboxImageSnapshot(image_id=str(image_id), kind=kind, path=path, ttl_seconds=ttl)
+
+
+def _resolve_mount_image(image: SandboxImageSnapshot | str | object) -> object:
+    """Resolve SDK image metadata or an image ID into a Modal Image object."""
+    if isinstance(image, SandboxImageSnapshot):
+        image = image.image_id
+    if isinstance(image, str):
+        modal = ModalSandboxProvider._load_modal()
+        from_id = getattr(modal.Image, "from_id", None)
+        if not callable(from_id):
+            raise SandboxProviderError("Installed Modal SDK does not expose Image.from_id.")
+        return from_id(image)
+    return image
+
+
+def _file_stat_metadata(info: object, *, path: str) -> SandboxFileStat:
+    """Normalize Modal FileInfo-like objects into SDK metadata."""
+    kind_value = getattr(info, "type", None)
+    kind = getattr(kind_value, "value", kind_value)
+    modified_time = getattr(info, "modified_time", None)
+    if isinstance(modified_time, datetime):
+        modified = modified_time.isoformat()
+    elif modified_time is None:
+        modified = None
+    else:
+        modified = str(modified_time)
+    size = getattr(info, "size", None)
+    return SandboxFileStat(
+        path=path,
+        kind=str(kind) if kind is not None else "unknown",
+        size=int(size) if size is not None else None,
+        permissions=str(getattr(info, "permissions", "")) or None,
+        modified_time=modified,
+    )
+
+
+def _file_watch_events(event: object) -> list[SandboxWatchEvent]:
+    """Normalize Modal FileWatchEvent-like objects into SDK metadata."""
+    raw_paths = getattr(event, "paths", None)
+    if raw_paths:
+        paths = [str(path) for path in raw_paths]
+    else:
+        raw_path = getattr(event, "path", None) or getattr(event, "src_path", None) or getattr(event, "name", None)
+        paths = [str(raw_path) if raw_path is not None else ""]
+    raw_type = getattr(event, "type", None) or getattr(event, "event_type", None)
+    event_type = getattr(raw_type, "value", raw_type)
+    normalized_type = str(event_type) if event_type is not None else "unknown"
+    return [SandboxWatchEvent(path=path, event_type=normalized_type) for path in paths]
+
+
+def _resolve_watch_filters(filters: Sequence[str] | None) -> list[object] | None:
+    """Resolve optional watch-event filter names into Modal enum values."""
+    if filters is None:
+        return None
+    try:
+        event_type = import_module("modal.file_io").FileWatchEventType
+    except Exception:
+        return [str(item) for item in filters]
+
+    resolved: list[object] = []
+    for item in filters:
+        name = str(item).strip()
+        for candidate in (name, name.capitalize(), name.upper(), name.lower()):
+            value = getattr(event_type, candidate, None)
+            if value is not None:
+                resolved.append(value)
+                break
+        else:
+            raise SandboxConfigurationError(f"Unsupported watch event type {item!r}.")
+    return resolved
 
 
 def _resolve_volume(modal: Any, volume: VolumeSpec, *, create_if_missing: bool = True) -> object:

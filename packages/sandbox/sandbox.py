@@ -6,6 +6,7 @@ import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from ipaddress import ip_address, ip_network
+from urllib.parse import urlparse
 
 from .commands import CommandResult, SandboxCommand
 from .errors import SandboxConfigurationError, SandboxProviderError
@@ -14,9 +15,13 @@ from .provider_modal import ModalSandboxProvider, SandboxProvider, sandbox_path
 from .types import (
     DEFAULT_MAX_OUTPUT_BYTES,
     ImageSpec,
+    ReadinessProbeSpec,
     RuntimeSpec,
     SandboxConfig,
+    SandboxFileStat,
+    SandboxImageSnapshot,
     SandboxSnapshot,
+    SandboxWatchEvent,
 )
 from .volumes import SandboxVolume
 
@@ -26,6 +31,40 @@ RUNTIME_IMAGES = {
     "node22": "node:22-slim",
 }
 SANDBOX_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
+DEFAULT_IMAGE_SNAPSHOT_TTL = 30 * 24 * 3600
+
+TARBALL_SEED_SCRIPT = r"""
+import os
+import pathlib
+import sys
+import tarfile
+import tempfile
+import urllib.request
+
+url, destination, strip_text = sys.argv[1], sys.argv[2], sys.argv[3]
+strip_components = int(strip_text)
+destination_path = pathlib.Path(destination)
+destination_path.mkdir(parents=True, exist_ok=True)
+
+with tempfile.NamedTemporaryFile(suffix=".tar") as archive_file:
+    with urllib.request.urlopen(url) as response:
+        archive_file.write(response.read())
+    archive_file.flush()
+
+    with tarfile.open(archive_file.name) as archive:
+        safe_members = []
+        destination_root = os.path.abspath(destination)
+        for member in archive.getmembers():
+            parts = pathlib.PurePosixPath(member.name).parts[strip_components:]
+            if not parts:
+                continue
+            member.name = str(pathlib.PurePosixPath(*parts))
+            target = os.path.abspath(os.path.join(destination, member.name))
+            if target != destination_root and not target.startswith(destination_root + os.sep):
+                raise RuntimeError(f"tarball member escapes destination: {member.name}")
+            safe_members.append(member)
+        archive.extractall(destination, members=safe_members)
+"""
 
 
 class Sandbox:
@@ -71,6 +110,7 @@ class Sandbox:
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
+        readiness_probe: ReadinessProbeSpec = None,
         sandbox_id: str | None = None,
     ) -> Sandbox:
         """Create or attach to a Modal Sandbox.
@@ -108,6 +148,8 @@ class Sandbox:
                 `None` for no SDK truncation.
             encrypted_ports: Ports to expose as HTTPS Modal tunnels.
             unencrypted_ports: Ports to expose as TCP Modal tunnels.
+            readiness_probe: Optional `SandboxReadinessProbe` or Modal probe
+                object used by `wait_until_ready()`.
             sandbox_id: Existing Modal sandbox ID to attach to instead of
                 creating a new sandbox.
 
@@ -152,6 +194,7 @@ class Sandbox:
             max_output_bytes=max_output_bytes,
             encrypted_ports=tuple(encrypted_ports or ()),
             unencrypted_ports=tuple(unencrypted_ports or ()),
+            readiness_probe=readiness_probe,
         )
 
         # Attach and create share the same public config, but Modal only needs
@@ -169,6 +212,7 @@ class Sandbox:
         *,
         app_name: str = "modal-sandbox-sdk",
         workspace: str = "/workspace",
+        volumes: Sequence[SandboxVolume] | None = None,
         command_timeout: int = 30,
         sandbox_timeout: int = 300,
         workdir: str | None = None,
@@ -181,6 +225,8 @@ class Sandbox:
             sandbox_id: Modal sandbox object ID.
             app_name: Modal app name associated with the sandbox.
             workspace: Default workspace for relative paths.
+            volumes: Optional local volume metadata for attach-only helpers
+                such as `workspace_checkpoint()` and `sync_workspace()`.
             command_timeout: Default timeout in seconds for `run`.
             sandbox_timeout: Stored for config symmetry with `create`.
             workdir: Default working directory for commands.
@@ -194,6 +240,7 @@ class Sandbox:
         config = SandboxConfig(
             app_name=app_name,
             workspace=workspace,
+            volumes=_normalize_volumes(volumes),
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
@@ -208,6 +255,7 @@ class Sandbox:
         *,
         app_name: str = "modal-sandbox-sdk",
         workspace: str = "/workspace",
+        volumes: Sequence[SandboxVolume] | None = None,
         command_timeout: int = 30,
         sandbox_timeout: int = 300,
         workdir: str | None = None,
@@ -220,6 +268,8 @@ class Sandbox:
             name: Modal sandbox name to resolve within `app_name`.
             app_name: Modal app name associated with the sandbox.
             workspace: Default workspace for relative paths.
+            volumes: Optional local volume metadata for attach-only helpers
+                such as `workspace_checkpoint()` and `sync_workspace()`.
             command_timeout: Default timeout in seconds for `run`.
             sandbox_timeout: Stored for config symmetry with `create`.
             workdir: Default working directory for commands.
@@ -237,6 +287,7 @@ class Sandbox:
             app_name=app_name,
             name=normalized_name,
             workspace=workspace,
+            volumes=_normalize_volumes(volumes),
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
@@ -271,6 +322,7 @@ class Sandbox:
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
         tags: Mapping[str, str] | None = None,
+        readiness_probe: ReadinessProbeSpec = None,
     ) -> Sandbox:
         """Attach to a running named sandbox or create it when absent.
 
@@ -322,6 +374,7 @@ class Sandbox:
                 max_output_bytes=max_output_bytes,
                 encrypted_ports=encrypted_ports,
                 unencrypted_ports=unencrypted_ports,
+                readiness_probe=readiness_probe,
             )
             if on_create is not None:
                 on_create(sandbox)
@@ -353,6 +406,7 @@ class Sandbox:
         max_output_bytes: int | None = DEFAULT_MAX_OUTPUT_BYTES,
         encrypted_ports: Sequence[int] | None = None,
         unencrypted_ports: Sequence[int] | None = None,
+        readiness_probe: ReadinessProbeSpec = None,
     ) -> Sandbox:
         """Create a sandbox with a volume-backed workspace snapshot.
 
@@ -390,6 +444,7 @@ class Sandbox:
             max_output_bytes=max_output_bytes,
             encrypted_ports=encrypted_ports,
             unencrypted_ports=unencrypted_ports,
+            readiness_probe=readiness_probe,
         )
 
     @classmethod
@@ -614,6 +669,63 @@ class Sandbox:
                         f"chmod failed for {chmod_path!r} with exit code {result.exit_code}: {result.stderr}"
                     )
 
+    def seed_git(
+        self,
+        repo_url: str,
+        *,
+        destination: str = ".",
+        ref: str | None = None,
+        depth: int = 1,
+    ) -> CommandResult:
+        """Clone a public Git repository into the sandbox.
+
+        Args:
+            repo_url: Public HTTP(S) Git repository URL.
+            destination: Relative workspace path or absolute sandbox path.
+            ref: Optional branch or tag to pass to `git clone --branch`.
+            depth: Clone depth. Use `0` for a full clone.
+
+        Returns:
+            Command result from the `git clone` invocation.
+        """
+        repo_url = repo_url.strip()
+        _validate_public_http_url(repo_url)
+        if depth < 0:
+            raise SandboxConfigurationError("seed_git depth must be non-negative.")
+        target = sandbox_path(destination, self.config.workspace)
+        args: list[str] = ["clone"]
+        if depth:
+            args.extend(["--depth", str(depth)])
+        if ref:
+            args.extend(["--branch", ref])
+        args.extend([repo_url, target])
+        return self.run_command("git", args)
+
+    def seed_tarball(
+        self,
+        tarball_url: str,
+        *,
+        destination: str = ".",
+        strip_components: int = 1,
+    ) -> CommandResult:
+        """Download and extract a public tarball into the sandbox.
+
+        Args:
+            tarball_url: Public HTTP(S) tarball URL.
+            destination: Relative workspace path or absolute sandbox path.
+            strip_components: Leading path components to remove while
+                extracting.
+
+        Returns:
+            Command result from the extraction command.
+        """
+        tarball_url = tarball_url.strip()
+        _validate_public_http_url(tarball_url)
+        if strip_components < 0:
+            raise SandboxConfigurationError("strip_components must be non-negative.")
+        target = sandbox_path(destination, self.config.workspace)
+        return self.run_command("python", ["-c", TARBALL_SEED_SCRIPT, tarball_url, target, str(strip_components)])
+
     def close(self) -> None:
         """Terminate or detach from the underlying sandbox."""
         self._provider.close()
@@ -641,8 +753,8 @@ class Sandbox:
         """
         return self._provider.domain(port)
 
-    def create_snapshot(self) -> SandboxSnapshot:
-        """Create a volume-backed workspace snapshot checkpoint.
+    def workspace_checkpoint(self) -> SandboxSnapshot:
+        """Create a volume-backed workspace checkpoint.
 
         Returns:
             Metadata for the Modal volume mounted at the workspace path.
@@ -652,6 +764,63 @@ class Sandbox:
                 named volume.
         """
         return self._provider.create_snapshot()
+
+    def create_snapshot(self) -> SandboxSnapshot:
+        """Compatibility alias for `workspace_checkpoint()`."""
+        return self.workspace_checkpoint()
+
+    def snapshot_filesystem(
+        self, *, timeout: int = 55, ttl: int | None = DEFAULT_IMAGE_SNAPSHOT_TTL
+    ) -> SandboxImageSnapshot:
+        """Snapshot the sandbox filesystem into a Modal image."""
+        return self._provider.snapshot_filesystem(timeout=timeout, ttl=ttl)
+
+    def snapshot_directory(
+        self,
+        path: str,
+        *,
+        timeout: int = 55,
+        ttl: int | None = DEFAULT_IMAGE_SNAPSHOT_TTL,
+    ) -> SandboxImageSnapshot:
+        """Snapshot a sandbox directory into a Modal image."""
+        return self._provider.snapshot_directory(path, timeout=timeout, ttl=ttl)
+
+    def mount_image(self, path: str, image: SandboxImageSnapshot | str | object) -> None:
+        """Mount a Modal image snapshot inside the sandbox."""
+        self._provider.mount_image(path, image)
+
+    def unmount_image(self, path: str) -> None:
+        """Unmount a Modal image snapshot from the sandbox."""
+        self._provider.unmount_image(path)
+
+    def stat(self, path: str) -> SandboxFileStat:
+        """Return metadata for a sandbox filesystem path."""
+        return self._provider.stat(path)
+
+    def watch(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: Sequence[str] | None = None,
+    ) -> Sequence[SandboxWatchEvent]:
+        """Return filesystem watch events for a sandbox path."""
+        return self._provider.watch(path, recursive=recursive, timeout=timeout, filter=filter)
+
+    def sync_workspace(self) -> CommandResult:
+        """Persist workspace-volume changes without waiting for termination."""
+        return self._provider.sync_workspace()
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        """Wait until the sandbox readiness probe succeeds.
+
+        Args:
+            timeout: Maximum seconds to wait for Modal readiness. Modal raises
+                if the sandbox has no readiness probe or the probe does not
+                become ready before the timeout.
+        """
+        self._provider.wait_until_ready(timeout=timeout)
 
     def __enter__(self) -> Sandbox:
         """Enter a context manager and return this sandbox.
@@ -967,6 +1136,17 @@ def _validate_network_policy(
             "block_network cannot be combined with outbound_domain_allowlist, "
             "outbound_cidr_allowlist, or inbound_cidr_allowlist."
         )
+
+
+def _validate_public_http_url(value: str) -> None:
+    """Validate that a source URL is public HTTP(S) without embedded credentials."""
+    if not isinstance(value, str):
+        raise TypeError("source URL must be a string.")
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SandboxConfigurationError("source URL must be an HTTP(S) URL.")
+    if parsed.username or parsed.password:
+        raise SandboxConfigurationError("source URL must not include embedded credentials.")
 
 
 def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:

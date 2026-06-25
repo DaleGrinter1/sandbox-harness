@@ -7,6 +7,9 @@
 - Credentials are inspected only for presence/status in `sandbox doctor`.
 - Sandbox network access can be restricted with SDK domain/CIDR allowlists or
   CLI `--allow-domain`, `--allow-cidr`, and `--allow-inbound-cidr`.
+- Source seeding accepts public HTTP(S) URLs without embedded credentials. Do
+  not place tokens in source URLs; use Modal secrets or a custom image for
+  private-source workflows.
 
 ## Path Safety
 

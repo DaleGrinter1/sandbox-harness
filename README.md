@@ -1,13 +1,17 @@
 # Modal Sandbox SDK
 
-Small Python SDK and CLI for running commands and file workflows inside Modal
-Sandboxes.
+Small Python SDK and JSON-first CLI for running commands and file workflows
+inside Modal Sandboxes. It is a lightweight helper for new users and agents,
+not a replacement for Modal's backend or full Python SDK.
 
 Use it when you want to:
 
 - Run a command in a fresh Modal Sandbox.
 - Write, read, list, remove, upload, or download sandbox files.
 - Keep files across CLI calls with an optional Modal volume.
+- Wait for TCP or argv-style readiness probes before issuing work.
+- Inspect files, sync a workspace volume, or seed public source after sandbox
+  creation.
 - Inspect a JSON-friendly CLI contract before creating Modal resources.
 
 ## Quick Start
@@ -103,6 +107,7 @@ uv run sandbox --image py313 --workspace-volume work write app.py --content "pri
 uv run sandbox --image py313 --workspace-volume work run "python app.py"
 uv run sandbox --image py313 --workspace-volume work read app.py
 uv run sandbox --image py313 --workspace-volume work snapshot
+uv run sandbox --image py313 --workspace-volume work sync
 ```
 
 Reusable long-lived sandbox:
@@ -142,6 +147,21 @@ with Sandbox.create(image=Images.PY313) as sb:
     print(sb.read_text("notes/todo.txt"))
 ```
 
+Use a readiness probe when a sandbox service should be healthy before follow-up
+commands or port lookups run:
+
+```python
+from sandbox import Sandbox, SandboxReadinessProbe
+
+with Sandbox.create(
+    runtime="node24",
+    encrypted_ports=[3000],
+    readiness_probe=SandboxReadinessProbe.tcp(3000),
+) as sb:
+    sb.wait_until_ready(timeout=60)
+    print(sb.domain(3000))
+```
+
 Use registry image strings, environment variables, output caps, and first-class
 volume mounts when a workflow needs them:
 
@@ -179,7 +199,7 @@ from sandbox.volumes import SandboxVolume
 
 For Vercel-style Python SDK workflows, use runtime aliases, argv commands,
 detached command handles, declared ports, bulk file writes, and volume-backed
-snapshots:
+workspace checkpoints:
 
 ```python
 with Sandbox.create(runtime="python3.13", encrypted_ports=[3000]) as sb:
@@ -188,6 +208,25 @@ with Sandbox.create(runtime="python3.13", encrypted_ports=[3000]) as sb:
 ```
 
 See [docs/design-docs/vercel-style-sdk-compatibility.md](docs/design-docs/vercel-style-sdk-compatibility.md) for details and limitations.
+
+Workspace checkpoints and Modal-native image snapshots are separate APIs.
+`workspace_checkpoint()` and its compatibility alias `create_snapshot()` return
+metadata for the Modal volume mounted at the workspace. `snapshot_filesystem()`
+and `snapshot_directory()` return JSON-friendly Modal image snapshot metadata.
+
+```python
+from sandbox import Sandbox, SandboxVolume
+
+with Sandbox.create(runtime="python3.13", volumes=[SandboxVolume.workspace("work")]) as sb:
+    sb.write_text("app.py", "print(123)\n")
+    checkpoint = sb.workspace_checkpoint()
+    file_info = sb.stat("app.py")
+    print(checkpoint.to_dict(), file_info.to_dict())
+
+with Sandbox.create(runtime="python3.13") as sb:
+    image_snapshot = sb.snapshot_directory(".", ttl=7 * 24 * 3600)
+    sb.mount_image("restored", image_snapshot)
+```
 
 The `Sandbox` object exposes a small synchronous API:
 
@@ -198,8 +237,11 @@ Sandbox.from_name(...)
 Sandbox.get_or_create(...)
 Sandbox.from_snapshot(...)
 Sandbox.from_provider(...)
+SandboxReadinessProbe.tcp(3000)
+SandboxReadinessProbe.exec(["python", "-c", "raise SystemExit(0)"])
 sb.config
 sb.sandbox_id
+sb.wait_until_ready(timeout=300)
 sb.run("python hello.py")
 sb.run_command("python", ["-c", "print('hello')"])
 sb.run_command_detached("npm", ["run", "dev"])
@@ -214,7 +256,17 @@ sb.remove("notes", recursive=True)
 sb.copy_from_local("local.txt", "remote.txt")
 sb.copy_to_local("remote.txt", "local.txt")
 sb.domain(3000)
+sb.workspace_checkpoint()
 sb.create_snapshot()
+sb.snapshot_filesystem(timeout=55, ttl=30 * 24 * 3600)
+sb.snapshot_directory(".", timeout=55, ttl=30 * 24 * 3600)
+sb.mount_image("snapshots/app", "im-abc123")
+sb.unmount_image("snapshots/app")
+sb.stat("hello.py")
+list(sb.watch(".", recursive=True, timeout=5))
+sb.sync_workspace()
+sb.seed_git("https://github.com/example/project.git", destination="src")
+sb.seed_tarball("https://example.com/source.tar.gz", destination="src")
 sb.detach()
 sb.terminate()
 sb.close()
@@ -268,6 +320,38 @@ uv run sandbox --sandbox-name agent-workspace write hello.py --content "print('h
 uv run sandbox --sandbox-name agent-workspace run "python hello.py"
 uv run sandbox --sandbox-name agent-workspace stop
 ```
+
+Wait for service readiness when creating or reusing a sandbox:
+
+```bash
+uv run sandbox --runtime node24 --encrypted-port 3000 --readiness-tcp 3000 --wait-ready start
+uv run sandbox --sandbox-id sb-abc123 wait-ready --timeout 60
+uv run sandbox --readiness-exec "python -c 'import pathlib; raise SystemExit(not pathlib.Path(\"/tmp/ready\").exists())'" --wait-ready run "python app.py"
+```
+
+Inspect files, sync a workspace volume, and seed public source:
+
+```bash
+uv run sandbox --workspace-volume work stat app.py
+uv run sandbox --workspace-volume work watch . --timeout 5 --recursive
+uv run sandbox --workspace-volume work sync
+uv run sandbox --workspace-volume work seed-git https://github.com/example/project.git --dest src
+uv run sandbox --workspace-volume work seed-tarball https://example.com/source.tar.gz --dest src
+```
+
+Modal-native image snapshots are explicit commands. They return image metadata,
+not volume checkpoint metadata:
+
+```bash
+uv run sandbox snapshot-filesystem --ttl 604800
+uv run sandbox snapshot-directory . --ttl 604800
+uv run sandbox --sandbox-id sb-abc123 mount-image restored im-abc123
+uv run sandbox --sandbox-id sb-abc123 unmount-image restored
+```
+
+Private source workflows should use Modal secrets, a custom Modal image, or a
+caller-provided setup command inside the sandbox. The CLI intentionally has no
+token-taking source flags.
 
 The CLI accepts registry tags such as `python:3.13-slim`, beginner image aliases
 such as `py313`, `py312`, `py311`, and `ubuntu24`, and runtime aliases such as
@@ -341,8 +425,10 @@ uv run sandbox quickstart
 ```
 
 Commands such as `quickstart --run`, `start`, `stop`, `run`, `run-command`,
-`write`, `read`, `ls`, `mkdir`, `rm`, `upload`, `download`, `domain`, and
-`snapshot` contact Modal.
+`write`, `read`, `ls`, `mkdir`, `rm`, `upload`, `download`, `domain`,
+`snapshot`, `snapshot-filesystem`, `snapshot-directory`, `mount-image`,
+`unmount-image`, `stat`, `watch`, `sync`, `wait-ready`, `seed-git`, and
+`seed-tarball` contact Modal.
 
 **My file disappeared after a command.**
 

@@ -29,7 +29,9 @@ Start with dry commands only:
 
 Do not run live Modal commands unless the user explicitly asks for live
 execution. Live commands include quickstart --run, run, run-command, start,
-stop, write, read, ls, mkdir, rm, upload, download, domain, and snapshot.
+stop, write, read, ls, mkdir, rm, upload, download, domain, snapshot,
+snapshot-filesystem, snapshot-directory, mount-image, unmount-image, stat,
+watch, sync, wait-ready, seed-git, and seed-tarball.
 Live tests must stay opt-in with MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1.
 
 Before broad work, make sure the exec plan is being used:
@@ -48,6 +50,8 @@ For implementation:
 - Run the narrowest useful tests first.
 - Before handoff, update session-state.json with the next action.
 - Do not add Modal token values, token placeholders, or secrets.
+- Do not add token-taking source flags; private source guidance should use
+  Modal secrets, custom images, or user-provided setup commands.
 ```
 
 ## Dry Commands

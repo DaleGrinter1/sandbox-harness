@@ -7,6 +7,30 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## Unreleased
 
+## 0.3.0 - 2026-06-25
+
+- Added `Sandbox.workspace_checkpoint()` for volume-backed workspace
+  checkpoints while keeping `create_snapshot()` as a compatibility alias.
+- Added Modal-native image snapshot helpers:
+  `snapshot_filesystem()`, `snapshot_directory()`, `mount_image()`, and
+  `unmount_image()`.
+- Added JSON-friendly `SandboxImageSnapshot`, `SandboxFileStat`, and
+  `SandboxWatchEvent` public metadata types.
+- Added `SandboxReadinessProbe`, `Sandbox.wait_until_ready()`, creation-time
+  readiness probe support, and CLI `wait-ready`/`--wait-ready` workflows.
+- Added SDK and CLI filesystem helpers for `stat`, bounded `watch`, and
+  workspace-volume `sync`.
+- Added public-source seeding helpers and CLI commands for HTTP(S) git
+  repositories and tarballs without token-taking flags.
+- Added CLI commands `snapshot-filesystem`, `snapshot-directory`,
+  `mount-image`, `unmount-image`, `stat`, `watch`, `sync`, `seed-git`, and
+  `seed-tarball`.
+- Changed the Modal dependency policy to `modal>=1.5,<2`.
+- Added CI coverage for Python 3.11, 3.12, and 3.13 plus installed-wheel smoke
+  checks.
+- Updated README, CLI reference, product specs, reliability docs, and generated
+  CLI schema for the expanded 0.3 surface.
+
 ## 0.2.0 - 2026-06-16
 
 - Added CLI support for runtime aliases, argv-style `run-command`, declared

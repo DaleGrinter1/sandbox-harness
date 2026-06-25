@@ -33,7 +33,8 @@ Then check the built package metadata and install path:
 
 ```bash
 uv run python -m pip install --force-reinstall dist/*.whl
-uv run python -c "from sandbox import Sandbox, SandboxVolume; from sandbox.volumes import SandboxVolume as V; assert SandboxVolume is V"
+uv run python -c "from sandbox import Sandbox, SandboxImageSnapshot, SandboxVolume; from sandbox.volumes import SandboxVolume as V; assert SandboxVolume is V; assert SandboxImageSnapshot"
+uv run sandbox schema
 ```
 
 Live Modal tests are opt-in:
@@ -44,5 +45,8 @@ MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
 
 The live suite creates real Modal resources and covers the beginner acceptance
 path: SDK file helpers, `quickstart --run`, CLI file persistence with a
-workspace volume, `snapshot`, port `domain`, and `start`/`--sandbox-id`/`stop`.
-The persistent volume test uses a unique volume name and deletes it in cleanup.
+workspace volume, `snapshot`, `stat`, `sync`, bounded `watch`, port `domain`,
+readiness probe waits, and `start`/`--sandbox-id`/`stop`. Before release,
+manually include short-TTL Modal-native `snapshot-filesystem` and
+`snapshot-directory` flows. The persistent volume test uses a unique volume
+name and deletes it in cleanup.

@@ -15,6 +15,10 @@ This repository does not use a database. The closest typed schema source is the 
 - `SandboxFile`: bulk file write input.
 - `SandboxVolume`: Modal volume mount declaration.
 - `SandboxSnapshot`: volume-backed snapshot metadata.
+- `SandboxImageSnapshot`: Modal image snapshot metadata.
+- `SandboxFileStat`: sandbox file metadata returned by `stat`.
+- `SandboxWatchEvent`: bounded sandbox filesystem watch event.
+- `SandboxReadinessProbe`: JSON-friendly Modal readiness probe specification.
 
 ## Regeneration Method
 

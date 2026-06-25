@@ -7,6 +7,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -17,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: .python-version
+          python-version: ${{ matrix.python-version }}
 
       - name: Sync dependencies
         run: uv sync --frozen
@@ -45,3 +49,11 @@ jobs:
 
       - name: Check CLI schema
         run: uv run sandbox schema
+
+      - name: Smoke installed wheel
+        run: |
+          python -m venv /tmp/modal-sandbox-sdk-smoke
+          /tmp/modal-sandbox-sdk-smoke/bin/python -m pip install --upgrade pip
+          /tmp/modal-sandbox-sdk-smoke/bin/python -m pip install dist/*.whl
+          /tmp/modal-sandbox-sdk-smoke/bin/python -c "import sandbox, sandbox_cli; assert sandbox.Sandbox; assert sandbox_cli"
+          /tmp/modal-sandbox-sdk-smoke/bin/sandbox schema

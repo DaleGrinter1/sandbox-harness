@@ -57,6 +57,7 @@ uv run sandbox --image py313 --workspace-volume work write app.py --content "pri
 uv run sandbox --image py313 --workspace-volume work run "python app.py"
 uv run sandbox --image py313 --workspace-volume work read app.py
 uv run sandbox --image py313 --workspace-volume work snapshot
+uv run sandbox --image py313 --workspace-volume work sync
 ```
 
 Long-lived sandbox reuse:
@@ -101,6 +102,16 @@ captured; it does not live-stream output. Use `0` to capture no bytes.
 
 ```bash
 uv run sandbox --max-output-bytes 1048576 run "python noisy.py"
+```
+
+Use readiness probes when a newly created sandbox should report healthy before
+the CLI starts work. TCP probes check a declared service port; exec probes run
+an argv-style command. Add `--wait-ready` to wait before the operational
+command executes:
+
+```bash
+uv run sandbox --runtime node24 --encrypted-port 3000 --readiness-tcp 3000 --wait-ready start
+uv run sandbox --readiness-exec "python -c 'import pathlib; raise SystemExit(not pathlib.Path(\"/tmp/ready\").exists())'" --wait-ready run "python app.py"
 ```
 
 Use `--allow-domain` to restrict outbound sandbox network access to specific
@@ -171,6 +182,52 @@ checkpoint. It does not call Modal's local `Volume.commit()` API. Running
 `snapshot` without `--workspace-volume` returns a JSON argument error before
 creating a sandbox because there is no persistent workspace volume to name.
 
+Inspect filesystem metadata:
+
+```bash
+uv run sandbox --workspace-volume my-workspace stat game.py
+```
+
+Watch filesystem changes for a bounded interval. The CLI requires
+`--timeout SECONDS` so the response can remain finite JSON:
+
+```bash
+uv run sandbox --sandbox-id sb-abc123 watch . --timeout 5 --recursive
+uv run sandbox --sandbox-id sb-abc123 watch . --timeout 5 --event Modify
+```
+
+Persist workspace-volume changes without waiting for sandbox shutdown:
+
+```bash
+uv run sandbox --workspace-volume my-workspace sync
+uv run sandbox --sandbox-id sb-abc123 --workspace-volume my-workspace sync
+```
+
+Create Modal-native image snapshots explicitly:
+
+```bash
+uv run sandbox snapshot-filesystem --ttl 604800
+uv run sandbox snapshot-directory . --ttl 604800
+uv run sandbox --sandbox-id sb-abc123 mount-image restored im-abc123
+uv run sandbox --sandbox-id sb-abc123 unmount-image restored
+```
+
+`snapshot-filesystem` and `snapshot-directory` return image snapshot metadata.
+They are separate from `snapshot`, which reports the workspace volume
+checkpoint metadata.
+
+Seed public source after sandbox creation:
+
+```bash
+uv run sandbox --workspace-volume my-workspace seed-git https://github.com/example/project.git --dest src
+uv run sandbox --workspace-volume my-workspace seed-tarball https://example.com/source.tar.gz --dest src
+```
+
+Source URLs must be public HTTP(S) URLs without embedded credentials. Private
+source setup belongs in Modal secrets, a custom image, or a caller-provided
+setup command inside the sandbox; the CLI does not expose token-taking source
+flags.
+
 ## Long-Lived Sandboxes
 
 Create a reusable sandbox. Add `--name` when you want a stable handle that can
@@ -201,6 +258,16 @@ uv run sandbox --sandbox-id sb-abc123 run "python hello.py"
 uv run sandbox --sandbox-id sb-abc123 read hello.py
 uv run sandbox --sandbox-id sb-abc123 domain 3000
 ```
+
+Wait for an existing sandbox's Modal readiness probe:
+
+```bash
+uv run sandbox --sandbox-id sb-abc123 wait-ready --timeout 60
+uv run sandbox --sandbox-name agent-workspace wait-ready --timeout 60
+```
+
+Readiness probe flags only apply while creating a sandbox. `wait-ready` attaches
+to an existing sandbox and does not define a new probe.
 
 `domain` requires `--sandbox-id` or `--sandbox-name`; use `start` to create a
 reusable sandbox with declared ports before resolving a port URL. Invalid

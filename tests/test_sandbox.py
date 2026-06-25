@@ -12,10 +12,14 @@ from sandbox import (
     SandboxConfigurationError,
     SandboxError,
     SandboxFile,
+    SandboxFileStat,
+    SandboxImageSnapshot,
     SandboxNotFoundError,
     SandboxProviderError,
+    SandboxReadinessProbe,
     SandboxSnapshot,
     SandboxVolume,
+    SandboxWatchEvent,
 )
 
 
@@ -37,6 +41,13 @@ class FakeProvider:
         self.terminated = False
         self.domain_calls: list[int] = []
         self.snapshot_created = False
+        self.snapshot_filesystem_calls: list[tuple[int, int | None]] = []
+        self.snapshot_directory_calls: list[tuple[str, int, int | None]] = []
+        self.mount_image_calls: list[tuple[str, object]] = []
+        self.unmount_image_calls: list[str] = []
+        self.stat_calls: list[str] = []
+        self.watch_calls: list[tuple[str, bool, int | None, Sequence[str] | None]] = []
+        self.wait_ready_calls: list[int] = []
 
     @property
     def sandbox_id(self) -> str:
@@ -129,6 +140,45 @@ class FakeProvider:
     def create_snapshot(self) -> SandboxSnapshot:
         self.snapshot_created = True
         return SandboxSnapshot(name="workspace-snapshot", kind="modal_volume", workspace=self.config.workspace)
+
+    def snapshot_filesystem(self, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600) -> SandboxImageSnapshot:
+        self.snapshot_filesystem_calls.append((timeout, ttl))
+        return SandboxImageSnapshot(image_id="im-filesystem", kind="modal_filesystem", ttl_seconds=ttl)
+
+    def snapshot_directory(
+        self, path: str, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600
+    ) -> SandboxImageSnapshot:
+        self.snapshot_directory_calls.append((path, timeout, ttl))
+        return SandboxImageSnapshot(
+            image_id="im-directory", kind="modal_directory", path="/workspace/project", ttl_seconds=ttl
+        )
+
+    def mount_image(self, path: str, image: object) -> None:
+        self.mount_image_calls.append((path, image))
+
+    def unmount_image(self, path: str) -> None:
+        self.unmount_image_calls.append(path)
+
+    def stat(self, path: str) -> SandboxFileStat:
+        self.stat_calls.append(path)
+        return SandboxFileStat(path="/workspace/game.py", kind="file", size=12, permissions="644")
+
+    def watch(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: Sequence[str] | None = None,
+    ) -> Sequence[SandboxWatchEvent]:
+        self.watch_calls.append((path, recursive, timeout, filter))
+        return [SandboxWatchEvent(path="/workspace/game.py", event_type="Modify")]
+
+    def sync_workspace(self) -> CommandResult:
+        return self.run_command("sync", [self.config.workspace])
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        self.wait_ready_calls.append(timeout)
 
 
 class FakeStream:
@@ -418,6 +468,48 @@ def test_create_stores_declared_ports(monkeypatch) -> None:
     assert created_configs[-1].unencrypted_ports == (9229,)
 
 
+def test_create_stores_readiness_probe(monkeypatch) -> None:
+    created_configs: list[SandboxConfig] = []
+
+    class CapturingProvider(FakeProvider):
+        @classmethod
+        def create(cls, config: SandboxConfig) -> CapturingProvider:
+            created_configs.append(config)
+            provider = cls()
+            provider.config = config
+            return provider
+
+    monkeypatch.setattr("sandbox.sandbox.ModalSandboxProvider", CapturingProvider)
+    probe = SandboxReadinessProbe.tcp(3000, interval_ms=250)
+
+    Sandbox.create(readiness_probe=probe)
+
+    assert created_configs[-1].readiness_probe == probe
+
+
+def test_readiness_probe_factories_validate_inputs() -> None:
+    assert SandboxReadinessProbe.tcp(8080).to_dict() == {
+        "command": (),
+        "interval_ms": 100,
+        "kind": "tcp",
+        "port": 8080,
+    }
+    assert SandboxReadinessProbe.exec(["sh", "-c", "test -f /tmp/ready"], interval_ms=250).command == (
+        "sh",
+        "-c",
+        "test -f /tmp/ready",
+    )
+
+    with pytest.raises(ValueError, match="port"):
+        SandboxReadinessProbe.tcp(0)
+
+    with pytest.raises(ValueError, match="positive"):
+        SandboxReadinessProbe.tcp(8080, interval_ms=0)
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        SandboxReadinessProbe.exec([])
+
+
 def test_create_stores_outbound_domain_allowlist(monkeypatch) -> None:
     created_configs: list[SandboxConfig] = []
 
@@ -680,12 +772,146 @@ def test_domain_and_snapshot_delegate_to_provider() -> None:
     provider = FakeProvider()
     sandbox = Sandbox.from_provider(provider)
 
-    snapshot = sandbox.create_snapshot()
+    snapshot = sandbox.workspace_checkpoint()
+    alias_snapshot = sandbox.create_snapshot()
 
     assert sandbox.domain(3000) == "https://sandbox.example/3000"
     assert provider.domain_calls == [3000]
     assert snapshot == SandboxSnapshot(name="workspace-snapshot", kind="modal_volume", workspace="/workspace")
+    assert alias_snapshot == snapshot
     assert provider.snapshot_created is True
+
+
+def test_modal_native_snapshot_and_mount_helpers_delegate_to_provider() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    filesystem_snapshot = sandbox.snapshot_filesystem(timeout=7, ttl=None)
+    directory_snapshot = sandbox.snapshot_directory("project", timeout=8, ttl=60)
+    sandbox.mount_image("snapshots/project", filesystem_snapshot)
+    sandbox.unmount_image("snapshots/project")
+
+    assert filesystem_snapshot == SandboxImageSnapshot(
+        image_id="im-filesystem", kind="modal_filesystem", ttl_seconds=None
+    )
+    assert directory_snapshot == SandboxImageSnapshot(
+        image_id="im-directory",
+        kind="modal_directory",
+        path="/workspace/project",
+        ttl_seconds=60,
+    )
+    assert provider.snapshot_filesystem_calls == [(7, None)]
+    assert provider.snapshot_directory_calls == [("project", 8, 60)]
+    assert provider.mount_image_calls == [("snapshots/project", filesystem_snapshot)]
+    assert provider.unmount_image_calls == ["snapshots/project"]
+
+
+def test_stat_watch_and_sync_delegate_to_provider() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    stat = sandbox.stat("game.py")
+    events = sandbox.watch(".", recursive=True, timeout=5, filter=["Modify"])
+    sync_result = sandbox.sync_workspace()
+
+    assert stat == SandboxFileStat(path="/workspace/game.py", kind="file", size=12, permissions="644")
+    assert events == [SandboxWatchEvent(path="/workspace/game.py", event_type="Modify")]
+    assert sync_result.stdout == "argv ok\n"
+    assert provider.stat_calls == ["game.py"]
+    assert provider.watch_calls == [(".", True, 5, ["Modify"])]
+    assert provider.argv_commands[-1] == ("sync", ("/workspace",), None, None, None)
+
+
+def test_wait_until_ready_delegates_to_provider() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    sandbox.wait_until_ready(timeout=45)
+
+    assert provider.wait_ready_calls == [45]
+
+
+def test_seed_git_uses_public_http_url_and_argv_command() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    result = sandbox.seed_git(
+        "https://github.com/example/project.git",
+        destination="src/project",
+        ref="main",
+        depth=1,
+    )
+
+    assert result.stdout == "argv ok\n"
+    assert provider.argv_commands[-1] == (
+        "git",
+        (
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            "main",
+            "https://github.com/example/project.git",
+            "/workspace/src/project",
+        ),
+        None,
+        None,
+        None,
+    )
+
+
+def test_seed_git_depth_zero_requests_full_clone() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    sandbox.seed_git("https://github.com/example/project.git", depth=0)
+
+    assert provider.argv_commands[-1] == (
+        "git",
+        ("clone", "https://github.com/example/project.git", "/workspace"),
+        None,
+        None,
+        None,
+    )
+
+
+def test_seed_tarball_uses_public_http_url_and_argv_command() -> None:
+    provider = FakeProvider()
+    sandbox = Sandbox.from_provider(provider)
+
+    result = sandbox.seed_tarball(
+        "https://example.com/archive.tar.gz",
+        destination="src",
+        strip_components=2,
+    )
+
+    assert result.stdout == "argv ok\n"
+    cmd, args, cwd, env, timeout = provider.argv_commands[-1]
+    assert cmd == "python"
+    assert args[0] == "-c"
+    assert args[2:] == ("https://example.com/archive.tar.gz", "/workspace/src", "2")
+    assert cwd is None
+    assert env is None
+    assert timeout is None
+
+
+def test_source_seeding_rejects_non_public_urls_and_negative_options() -> None:
+    sandbox = Sandbox.from_provider(FakeProvider())
+
+    with pytest.raises(SandboxConfigurationError, match="HTTP"):
+        sandbox.seed_git("git@github.com:example/project.git")
+
+    with pytest.raises(SandboxConfigurationError, match="credentials"):
+        sandbox.seed_git("https://token@example.com/project.git")
+
+    with pytest.raises(SandboxConfigurationError, match="non-negative"):
+        sandbox.seed_git("https://github.com/example/project.git", depth=-1)
+
+    with pytest.raises(SandboxConfigurationError, match="credentials"):
+        sandbox.seed_tarball("https://user:pass@example.com/archive.tar.gz")
+
+    with pytest.raises(SandboxConfigurationError, match="non-negative"):
+        sandbox.seed_tarball("https://example.com/archive.tar.gz", strip_components=-1)
 
 
 def test_public_exception_hierarchy() -> None:

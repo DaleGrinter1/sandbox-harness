@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from sandbox import CommandResult, ModalAuthenticationError, SandboxConfig, SandboxSnapshot, SandboxVolume
+from sandbox import (
+    CommandResult,
+    ModalAuthenticationError,
+    SandboxConfig,
+    SandboxFileStat,
+    SandboxImageSnapshot,
+    SandboxReadinessProbe,
+    SandboxSnapshot,
+    SandboxVolume,
+    SandboxWatchEvent,
+)
 from sandbox_cli import cli
 
 
@@ -21,12 +31,14 @@ class FakeSandbox:
     def create(cls, **kwargs: object) -> FakeSandbox:
         if cls.raise_auth_error:
             raise ModalAuthenticationError("Run modal setup before using Modal sandboxes.")
-        sandbox = cls()
+        sandbox_id = kwargs.get("sandbox_id")
+        sandbox = cls(sandbox_id=sandbox_id if isinstance(sandbox_id, str) else "sb-fake")
         sandbox_timeout = kwargs.get("sandbox_timeout", 300)
         max_output_bytes = kwargs.get("max_output_bytes")
         sandbox_name = kwargs.get("name")
         tags = kwargs.get("tags")
         volumes = kwargs.get("volumes", ())
+        readiness_probe = kwargs.get("readiness_probe")
         if not isinstance(volumes, tuple):
             volumes = ()
         volumes = cast(tuple[SandboxVolume, ...], volumes)
@@ -37,6 +49,7 @@ class FakeSandbox:
             sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
             max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
             volumes=volumes,
+            readiness_probe=readiness_probe,
         )
         cls.create_calls.append(kwargs)
         cls.instances.append(sandbox)
@@ -45,6 +58,15 @@ class FakeSandbox:
     @classmethod
     def from_id(cls, sandbox_id: str, **kwargs: object) -> FakeSandbox:
         sandbox = cls(sandbox_id=sandbox_id)
+        workspace = kwargs.get("workspace", "/workspace")
+        volumes = kwargs.get("volumes", ())
+        if not isinstance(volumes, tuple):
+            volumes = ()
+        sandbox.config = SandboxConfig(
+            app_name=str(kwargs.get("app_name", "modal-sandbox-sdk")),
+            workspace=workspace if isinstance(workspace, str) else "/workspace",
+            volumes=cast(tuple[SandboxVolume, ...], volumes),
+        )
         cls.from_id_calls.append({"sandbox_id": sandbox_id, **kwargs})
         cls.instances.append(sandbox)
         return sandbox
@@ -55,10 +77,14 @@ class FakeSandbox:
         workspace = kwargs.get("workspace", "/workspace")
         sandbox_timeout = kwargs.get("sandbox_timeout", 300)
         max_output_bytes = kwargs.get("max_output_bytes")
+        volumes = kwargs.get("volumes", ())
+        if not isinstance(volumes, tuple):
+            volumes = ()
         sandbox.config = SandboxConfig(
             app_name=str(kwargs.get("app_name", "modal-sandbox-sdk")),
             name=name,
             workspace=workspace if isinstance(workspace, str) else "/workspace",
+            volumes=cast(tuple[SandboxVolume, ...], volumes),
             sandbox_timeout=sandbox_timeout if isinstance(sandbox_timeout, int) else 300,
             max_output_bytes=max_output_bytes if isinstance(max_output_bytes, int) else None,
         )
@@ -75,6 +101,15 @@ class FakeSandbox:
         self.remove_calls: list[tuple[str, bool]] = []
         self.copy_from_local_calls: list[tuple[str, str]] = []
         self.copy_to_local_calls: list[tuple[str, str]] = []
+        self.snapshot_filesystem_calls: list[tuple[int, int | None]] = []
+        self.snapshot_directory_calls: list[tuple[str, int, int | None]] = []
+        self.mount_image_calls: list[tuple[str, object]] = []
+        self.unmount_image_calls: list[str] = []
+        self.stat_calls: list[str] = []
+        self.watch_calls: list[tuple[str, bool, int | None, list[str] | None]] = []
+        self.seed_git_calls: list[tuple[str, str, str | None, int]] = []
+        self.seed_tarball_calls: list[tuple[str, str, int]] = []
+        self.wait_ready_calls: list[int] = []
         self.detached = False
         self.terminated = False
 
@@ -137,6 +172,69 @@ class FakeSandbox:
                 return SandboxSnapshot(name=volume.volume, kind="modal_volume", workspace=self.config.workspace)
         raise ValueError("create_snapshot requires a string workspace volume.")
 
+    def workspace_checkpoint(self) -> SandboxSnapshot:
+        return self.create_snapshot()
+
+    def snapshot_filesystem(self, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600) -> SandboxImageSnapshot:
+        self.snapshot_filesystem_calls.append((timeout, ttl))
+        return SandboxImageSnapshot(image_id="im-filesystem", kind="modal_filesystem", ttl_seconds=ttl)
+
+    def snapshot_directory(
+        self, path: str, *, timeout: int = 55, ttl: int | None = 30 * 24 * 3600
+    ) -> SandboxImageSnapshot:
+        self.snapshot_directory_calls.append((path, timeout, ttl))
+        return SandboxImageSnapshot(
+            image_id="im-directory", kind="modal_directory", path="/workspace/src", ttl_seconds=ttl
+        )
+
+    def mount_image(self, path: str, image: object) -> None:
+        self.mount_image_calls.append((path, image))
+
+    def unmount_image(self, path: str) -> None:
+        self.unmount_image_calls.append(path)
+
+    def stat(self, path: str) -> SandboxFileStat:
+        self.stat_calls.append(path)
+        return SandboxFileStat(path="/workspace/game.py", kind="file", size=12, permissions="644")
+
+    def watch(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        timeout: int | None = None,
+        filter: list[str] | None = None,
+    ) -> list[SandboxWatchEvent]:
+        self.watch_calls.append((path, recursive, timeout, filter))
+        return [SandboxWatchEvent(path="/workspace/game.py", event_type="Modify")]
+
+    def sync_workspace(self) -> CommandResult:
+        return self.run_command("sync", [self.config.workspace])
+
+    def wait_until_ready(self, *, timeout: int = 300) -> None:
+        self.wait_ready_calls.append(timeout)
+
+    def seed_git(
+        self,
+        repo_url: str,
+        *,
+        destination: str = ".",
+        ref: str | None = None,
+        depth: int = 1,
+    ) -> CommandResult:
+        self.seed_git_calls.append((repo_url, destination, ref, depth))
+        return self.run_command("git", ["clone", repo_url, destination])
+
+    def seed_tarball(
+        self,
+        tarball_url: str,
+        *,
+        destination: str = ".",
+        strip_components: int = 1,
+    ) -> CommandResult:
+        self.seed_tarball_calls.append((tarball_url, destination, strip_components))
+        return self.run_command("python", ["-c", "extract", tarball_url, destination, str(strip_components)])
+
 
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
     FakeSandbox.create_calls = []
@@ -193,6 +291,7 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
             "max_output_bytes": 10 * 1024 * 1024,
             "encrypted_ports": (),
             "unencrypted_ports": (),
+            "readiness_probe": None,
             "sandbox_id": None,
         }
     ]
@@ -446,6 +545,33 @@ def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> 
             ["--name", "new-workspace", "--sandbox-name", "agent-workspace", "run", "true"],
             "--name cannot be used with --sandbox-name",
         ),
+        (
+            ["--sandbox-id", "sb-123", "--readiness-tcp", "3000", "run", "true"],
+            "readiness probe flags only apply when creating a sandbox",
+        ),
+        (
+            ["--wait-ready", "run", "true"],
+            "--wait-ready requires --readiness-tcp, --readiness-exec, --sandbox-id, or --sandbox-name",
+        ),
+        (["wait-ready"], "wait-ready requires --sandbox-id or --sandbox-name"),
+        (
+            ["--readiness-tcp", "3000", "wait-ready"],
+            "readiness probe flags cannot be combined with wait-ready",
+        ),
+        (
+            ["--readiness-tcp", "3000", "quickstart"],
+            "readiness flags require quickstart --run or an operational command",
+        ),
+        (["watch", ".", "--timeout", "0"], "argument --timeout: value must be a positive integer"),
+        (
+            ["watch", ".", "--timeout", "1", "--event", "bad/event"],
+            "argument --event: watch event names may only contain letters, numbers, dashes, and underscores",
+        ),
+        (["seed-git", "git@github.com:example/project.git"], "argument url: URL must be HTTP(S)"),
+        (
+            ["seed-tarball", "https://user:token@example.com/archive.tar.gz"],
+            "argument url: URL must not include embedded credentials",
+        ),
     ],
 )
 def test_cli_invalid_global_configuration_reports_argument_error_without_creating_sandbox(
@@ -572,6 +698,104 @@ def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
     }
 
 
+def test_cli_modal_native_snapshot_mount_and_unmount(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    assert cli.main(["snapshot-filesystem", "--timeout", "7", "--no-ttl"]) == 0
+    filesystem_payload = json.loads(capsys.readouterr().out)
+    assert filesystem_payload == {
+        "image_id": "im-filesystem",
+        "kind": "modal_filesystem",
+        "path": None,
+        "status": "created",
+        "ttl_seconds": None,
+    }
+    assert FakeSandbox.instances[-1].snapshot_filesystem_calls == [(7, None)]
+
+    assert cli.main(["snapshot-directory", "src", "--timeout", "8", "--ttl", "60"]) == 0
+    directory_payload = json.loads(capsys.readouterr().out)
+    assert directory_payload == {
+        "image_id": "im-directory",
+        "kind": "modal_directory",
+        "path": "/workspace/src",
+        "status": "created",
+        "ttl_seconds": 60,
+    }
+    assert FakeSandbox.instances[-1].snapshot_directory_calls == [("src", 8, 60)]
+
+    assert cli.main(["--sandbox-id", "sb-123", "mount-image", "snapshots/src", "im-directory"]) == 0
+    mount_payload = json.loads(capsys.readouterr().out)
+    assert mount_payload == {"image_id": "im-directory", "path": "snapshots/src", "status": "mounted"}
+    assert FakeSandbox.instances[-1].mount_image_calls == [("snapshots/src", "im-directory")]
+
+    assert cli.main(["--sandbox-id", "sb-123", "unmount-image", "snapshots/src"]) == 0
+    unmount_payload = json.loads(capsys.readouterr().out)
+    assert unmount_payload == {"path": "snapshots/src", "status": "unmounted"}
+    assert FakeSandbox.instances[-1].unmount_image_calls == ["snapshots/src"]
+
+
+def test_cli_stat_watch_sync_and_source_seed(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    assert cli.main(["stat", "game.py"]) == 0
+    stat_payload = json.loads(capsys.readouterr().out)
+    assert stat_payload == {
+        "kind": "file",
+        "modified_time": None,
+        "path": "/workspace/game.py",
+        "permissions": "644",
+        "size": 12,
+    }
+    assert FakeSandbox.instances[-1].stat_calls == ["game.py"]
+
+    assert cli.main(["watch", ".", "--timeout", "5", "--recursive", "--event", "Modify"]) == 0
+    watch_payload = json.loads(capsys.readouterr().out)
+    assert watch_payload == {
+        "events": [{"event_type": "Modify", "path": "/workspace/game.py"}],
+        "path": ".",
+        "recursive": True,
+        "timeout": 5,
+    }
+    assert FakeSandbox.instances[-1].watch_calls == [(".", True, 5, ["Modify"])]
+
+    assert cli.main(["--workspace-volume", "work", "sync"]) == 0
+    sync_payload = json.loads(capsys.readouterr().out)
+    assert sync_payload["stdout"] == "argv ok\n"
+    assert FakeSandbox.instances[-1].run_command_calls == [("sync", ["/workspace"], None, None)]
+    assert FakeSandbox.create_calls[-1]["volumes"] == (SandboxVolume.workspace("work"),)
+
+    assert cli.main(["seed-git", "https://github.com/example/project.git", "--dest", "src", "--ref", "main"]) == 0
+    git_payload = json.loads(capsys.readouterr().out)
+    assert git_payload["stdout"] == "argv ok\n"
+    assert FakeSandbox.instances[-1].seed_git_calls == [("https://github.com/example/project.git", "src", "main", 1)]
+
+    assert cli.main(["seed-tarball", "https://example.com/archive.tar.gz", "--strip-components", "2"]) == 0
+    tarball_payload = json.loads(capsys.readouterr().out)
+    assert tarball_payload["stdout"] == "argv ok\n"
+    assert FakeSandbox.instances[-1].seed_tarball_calls == [("https://example.com/archive.tar.gz", ".", 2)]
+
+
+def test_cli_sync_with_attached_sandbox_uses_supplied_workspace_volume(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    assert cli.main(["--sandbox-id", "sb-123", "--workspace-volume", "work", "sync"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stdout"] == "argv ok\n"
+    assert FakeSandbox.create_calls[-1]["sandbox_id"] == "sb-123"
+    assert FakeSandbox.create_calls[-1]["volumes"] == (SandboxVolume.workspace("work"),)
+    assert FakeSandbox.instances[-1].config.volumes == (SandboxVolume.workspace("work"),)
+
+
 def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_without_creating_sandbox(
     monkeypatch, capsys
 ) -> None:
@@ -593,6 +817,28 @@ def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_witho
     assert payload["error"]["next_steps"] == [
         "Run `sandbox doctor` to inspect local setup without creating Modal resources."
     ]
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_sync_without_workspace_volume_reports_json_argument_error_without_creating_sandbox(
+    monkeypatch, capsys
+) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["sync"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+    assert exc.value.code == 2
+    assert captured.out == ""
+    assert payload["status"] == "error"
+    assert payload["error"]["type"] == "argument_error"
+    assert payload["error"]["message"] == "sync requires --workspace-volume"
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
@@ -664,6 +910,82 @@ def test_cli_start_can_create_named_sandbox(monkeypatch, capsys) -> None:
     }
     assert FakeSandbox.create_calls[-1]["name"] == "agent-workspace"
     assert FakeSandbox.instances[-1].detached is True
+
+
+def test_cli_start_can_wait_for_tcp_readiness(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--encrypted-port",
+            "3000",
+            "--readiness-tcp",
+            "3000",
+            "--readiness-interval-ms",
+            "250",
+            "--wait-ready",
+            "--ready-timeout",
+            "45",
+            "start",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    probe = FakeSandbox.create_calls[-1]["readiness_probe"]
+    assert exit_code == 0
+    assert payload["ready"] is True
+    assert isinstance(probe, SandboxReadinessProbe)
+    assert probe.to_dict() == {"command": (), "interval_ms": 250, "kind": "tcp", "port": 3000}
+    assert FakeSandbox.instances[-1].wait_ready_calls == [45]
+    assert FakeSandbox.instances[-1].detached is True
+
+
+def test_cli_run_can_wait_for_exec_readiness(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--readiness-exec",
+            "sh -c 'test -f /tmp/ready'",
+            "--wait-ready",
+            "run",
+            "python -c 'print(123)'",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    probe = FakeSandbox.create_calls[-1]["readiness_probe"]
+    assert exit_code == 0
+    assert payload["stdout"] == "ok\n"
+    assert isinstance(probe, SandboxReadinessProbe)
+    assert probe.to_dict() == {
+        "command": ("sh", "-c", "test -f /tmp/ready"),
+        "interval_ms": 100,
+        "kind": "exec",
+        "port": None,
+    }
+    assert FakeSandbox.instances[-1].wait_ready_calls == [300]
+    assert FakeSandbox.instances[-1].run_calls == [("python -c 'print(123)'", None)]
+
+
+def test_cli_wait_ready_attaches_to_existing_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.create_calls = []
+    FakeSandbox.instances = []
+    FakeSandbox.raise_auth_error = False
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--sandbox-id", "sb-123", "wait-ready", "--timeout", "60"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {"sandbox_id": "sb-123", "status": "ready", "timeout": 60}
+    assert FakeSandbox.instances[-1].wait_ready_calls == [60]
 
 
 def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeypatch, capsys) -> None:
@@ -848,7 +1170,19 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["commands"]["run"]["output"]["stdout_truncated"] == "boolean"
     assert payload["commands"]["run-command"]["output"]["stdout"] == "string"
     assert payload["commands"]["domain"]["output"] == {"port": "integer", "url": "string"}
+    assert payload["commands"]["wait-ready"]["output"]["status"] == "ready"
     assert payload["commands"]["snapshot"]["output"]["kind"] == "modal_volume"
+    assert payload["commands"]["snapshot-filesystem"]["output"]["kind"] == "modal_filesystem"
+    assert payload["commands"]["snapshot-directory"]["output"]["kind"] == "modal_directory"
+    assert payload["commands"]["mount-image"]["output"]["status"] == "mounted"
+    assert payload["commands"]["unmount-image"]["output"]["status"] == "unmounted"
+    assert payload["commands"]["stat"]["output"]["kind"] == "string"
+    assert payload["commands"]["watch"]["output"]["events"] == "object[]"
+    assert payload["commands"]["sync"]["output"]["stdout"] == "string"
+    assert payload["commands"]["seed-git"]["arguments"]["url"] == "Public HTTP(S) Git repository URL."
+    assert payload["commands"]["seed-tarball"]["options"]["--strip-components N"] == (
+        "Leading archive path components to remove."
+    )
     assert payload["commands"]["dry"]["creates_sandbox"] is False
     assert payload["commands"]["dry"]["output"]["status"] == "string"
     assert payload["commands"]["dry"]["output"]["dry_commands"] == "string[]"
@@ -875,6 +1209,11 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert payload["global_options"]["--allow-inbound-cidr CIDR"] == (
         "Allow inbound tunnel/connect-token access from a CIDR range. Repeatable."
     )
+    assert payload["global_options"]["--readiness-tcp PORT"] == "Create a sandbox with a Modal TCP readiness probe."
+    assert payload["global_options"]["--readiness-exec COMMAND"] == (
+        "Create a sandbox with a Modal exec readiness probe parsed into argv."
+    )
+    assert payload["global_options"]["--wait-ready"] == ("Wait for readiness before running an operational command.")
     assert payload["lifecycle"]["volume_mounts"] == (
         "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths."
     )
@@ -905,7 +1244,15 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
     assert "quickstart --run" in payload["lifecycle"]["live_modal_commands"]
     assert "run-command" in payload["lifecycle"]["live_modal_commands"]
     assert "domain" in payload["lifecycle"]["live_modal_commands"]
+    assert "wait-ready" in payload["lifecycle"]["live_modal_commands"]
     assert "snapshot" in payload["lifecycle"]["live_modal_commands"]
+    assert "snapshot-filesystem" in payload["lifecycle"]["live_modal_commands"]
+    assert "snapshot-directory" in payload["lifecycle"]["live_modal_commands"]
+    assert "stat" in payload["lifecycle"]["live_modal_commands"]
+    assert "watch" in payload["lifecycle"]["live_modal_commands"]
+    assert "sync" in payload["lifecycle"]["live_modal_commands"]
+    assert "seed-git" in payload["lifecycle"]["live_modal_commands"]
+    assert "seed-tarball" in payload["lifecycle"]["live_modal_commands"]
     assert payload["lifecycle"]["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert payload["commands"]["dry"]["creates_sandbox"] is False
     assert payload["commands"]["schema"]["creates_sandbox"] is False
@@ -938,7 +1285,17 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "upload",
         "download",
         "domain",
+        "wait-ready",
         "snapshot",
+        "snapshot-filesystem",
+        "snapshot-directory",
+        "mount-image",
+        "unmount-image",
+        "stat",
+        "watch",
+        "sync",
+        "seed-git",
+        "seed-tarball",
         "dry",
         "schema",
         "doctor",
@@ -1245,6 +1602,7 @@ def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypa
             "max_output_bytes": 10 * 1024 * 1024,
             "encrypted_ports": (),
             "unencrypted_ports": (),
+            "readiness_probe": None,
             "sandbox_id": None,
         }
     ]

@@ -90,23 +90,40 @@ with Sandbox.create(runtime="node24", encrypted_ports=[3000]) as sb:
 
 Ports are backed by Modal tunnels. A port must be declared at creation time.
 
+Use a readiness probe when the service needs time to start before a domain is
+useful:
+
+```python
+from sandbox import SandboxReadinessProbe
+
+with Sandbox.create(
+    runtime="node24",
+    encrypted_ports=[3000],
+    readiness_probe=SandboxReadinessProbe.tcp(3000),
+) as sb:
+    sb.run_command_detached("npm", ["run", "dev"])
+    sb.wait_until_ready(timeout=60)
+    print(sb.domain(3000))
+```
+
 For CLI workflows, declare the port when the sandbox is started and then attach
 by ID or by name to retrieve the domain:
 
 ```bash
-uv run sandbox --runtime node24 --name agent-workspace --encrypted-port 3000 start
+uv run sandbox --runtime node24 --name agent-workspace --encrypted-port 3000 --readiness-tcp 3000 --wait-ready start
+uv run sandbox --sandbox-name agent-workspace wait-ready --timeout 60
 uv run sandbox --sandbox-name agent-workspace domain 3000
 ```
 
 ## Volume-Backed Snapshots
 
-`create_snapshot` and `from_snapshot` provide a Vercel-like workflow using Modal
-volumes:
+`workspace_checkpoint`, its compatibility alias `create_snapshot`, and
+`from_snapshot` provide a Vercel-like workflow using Modal volumes:
 
 ```python
 with Sandbox.create(runtime="python3.13", volumes=[SandboxVolume.workspace("my-workspace")]) as sb:
     sb.write_text("notes.txt", "saved in the workspace\n")
-    snapshot = sb.create_snapshot()
+    snapshot = sb.workspace_checkpoint()
 
 with Sandbox.from_snapshot(snapshot.name, runtime="python3.13") as sb:
     print(sb.read_text("notes.txt"))
@@ -132,6 +149,9 @@ processes, or the full VM filesystem.
 The SDK reports the mounted workspace volume as the checkpoint and does not use
 Modal's local `Volume.commit()` API, which is only valid for mounted volumes
 inside a container.
+
+Use `snapshot_filesystem()` and `snapshot_directory()` only when a workflow
+needs Modal-native image snapshot metadata.
 
 The CLI command is the same volume-backed checkpoint:
 

@@ -5,19 +5,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 from importlib import metadata
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
-from sandbox import Images, ModalAuthenticationError, Sandbox, SandboxVolume
+from sandbox import Images, ModalAuthenticationError, Sandbox, SandboxReadinessProbe, SandboxVolume
 
 SETUP_COMMANDS = [
     "modal setup",
     "python -m modal setup",
     "modal token new",
-    "modal token set --token-id <token id> --token-secret <token secret>",
+    "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment for non-interactive use.",
 ]
 
 CLI_SCHEMA_VERSION = "1"
@@ -99,8 +100,9 @@ GOLDEN_WORKFLOWS = [
             'sandbox --image py313 --workspace-volume work run "python app.py"',
             "sandbox --image py313 --workspace-volume work read app.py",
             "sandbox --image py313 --workspace-volume work snapshot",
+            "sandbox --image py313 --workspace-volume work sync",
         ],
-        "success_signal": "read returns the file content and snapshot names the workspace volume.",
+        "success_signal": "read returns the file content, snapshot names the workspace volume, and sync exits 0.",
     },
     {
         "id": "long_lived_reuse",
@@ -134,11 +136,12 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "creates_sandbox": True,
         "arguments": {},
         "options": {
-            "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, and timeout flags."
+            "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, readiness probes, and timeout flags."
         },
         "output": {
             "sandbox_id": "string",
             "status": "started",
+            "ready": "boolean when --wait-ready is used",
             "workspace": "string",
             "sandbox_timeout": "integer",
             "use_command": "string",
@@ -256,6 +259,17 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "output": {"port": "integer", "url": "string"},
         "example": "sandbox --sandbox-id sb-abc123 domain 3000",
     },
+    "wait-ready": {
+        "summary": "Wait for an existing sandbox readiness probe to report ready.",
+        "creates_sandbox": False,
+        "arguments": {},
+        "options": {
+            "requires --sandbox-id or --sandbox-name": "Attach to a sandbox that was created with a readiness probe.",
+            "--timeout": "Maximum seconds to wait for readiness.",
+        },
+        "output": {"sandbox_id": "string|null", "sandbox_name": "string|null", "status": "ready", "timeout": "integer"},
+        "example": "sandbox --sandbox-id sb-abc123 wait-ready --timeout 60",
+    },
     "snapshot": {
         "summary": "Create a volume-backed workspace snapshot checkpoint.",
         "creates_sandbox": True,
@@ -263,6 +277,103 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {"requires --workspace-volume": "Snapshot checkpoints are backed by the workspace Modal volume."},
         "output": {"name": "string", "kind": "modal_volume", "workspace": "string", "status": "created"},
         "example": "sandbox --workspace-volume work snapshot",
+    },
+    "snapshot-filesystem": {
+        "summary": "Create a Modal-native filesystem image snapshot.",
+        "creates_sandbox": True,
+        "arguments": {},
+        "options": {
+            "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
+            "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry.",
+            "--no-ttl": "Keep the snapshot indefinitely.",
+        },
+        "output": {"image_id": "string", "kind": "modal_filesystem", "path": "null", "ttl_seconds": "integer|null"},
+        "example": "sandbox snapshot-filesystem --ttl 604800",
+    },
+    "snapshot-directory": {
+        "summary": "Create a Modal-native directory image snapshot.",
+        "creates_sandbox": True,
+        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
+        "options": {
+            "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
+            "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry.",
+            "--no-ttl": "Keep the snapshot indefinitely.",
+        },
+        "output": {"image_id": "string", "kind": "modal_directory", "path": "string", "ttl_seconds": "integer|null"},
+        "example": "sandbox snapshot-directory . --ttl 604800",
+    },
+    "mount-image": {
+        "summary": "Mount a Modal image snapshot inside the sandbox.",
+        "creates_sandbox": True,
+        "arguments": {"path": "Mount path inside the sandbox.", "image_id": "Modal image object ID."},
+        "options": {},
+        "output": {"path": "string", "image_id": "string", "status": "mounted"},
+        "example": "sandbox --sandbox-id sb-abc123 mount-image project im-abc123",
+    },
+    "unmount-image": {
+        "summary": "Unmount a Modal image snapshot from the sandbox.",
+        "creates_sandbox": True,
+        "arguments": {"path": "Mount path inside the sandbox."},
+        "options": {},
+        "output": {"path": "string", "status": "unmounted"},
+        "example": "sandbox --sandbox-id sb-abc123 unmount-image project",
+    },
+    "stat": {
+        "summary": "Return metadata for a sandbox filesystem path.",
+        "creates_sandbox": True,
+        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
+        "options": {},
+        "output": {
+            "path": "string",
+            "kind": "string",
+            "size": "integer|null",
+            "permissions": "string|null",
+            "modified_time": "string|null",
+        },
+        "example": "sandbox --workspace-volume work stat app.py",
+    },
+    "watch": {
+        "summary": "Watch a sandbox path for filesystem changes and return bounded JSON events.",
+        "creates_sandbox": True,
+        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
+        "options": {
+            "--timeout": "Required timeout in seconds. The CLI consumes events until the timeout elapses.",
+            "--recursive": "Watch nested subdirectories.",
+            "--event TYPE": "Event type filter. Repeatable.",
+        },
+        "output": {"path": "string", "events": "object[]", "recursive": "boolean", "timeout": "integer"},
+        "example": "sandbox --sandbox-id sb-abc123 watch . --timeout 5",
+    },
+    "sync": {
+        "summary": "Persist workspace-volume changes without waiting for sandbox termination.",
+        "creates_sandbox": True,
+        "arguments": {},
+        "options": {"requires --workspace-volume": "Workspace sync requires a named workspace Modal volume."},
+        "output": COMMAND_RESULT_SCHEMA,
+        "example": "sandbox --workspace-volume work sync",
+    },
+    "seed-git": {
+        "summary": "Clone a public Git repository into the sandbox.",
+        "creates_sandbox": True,
+        "arguments": {"url": "Public HTTP(S) Git repository URL."},
+        "options": {
+            "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
+            "--ref REF": "Optional branch or tag.",
+            "--depth N": "Clone depth. Use 0 for a full clone.",
+        },
+        "output": COMMAND_RESULT_SCHEMA,
+        "example": "sandbox --workspace-volume work seed-git https://github.com/org/repo.git --dest .",
+    },
+    "seed-tarball": {
+        "summary": "Download and extract a public tarball into the sandbox.",
+        "creates_sandbox": True,
+        "arguments": {"url": "Public HTTP(S) tarball URL."},
+        "options": {
+            "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
+            "--strip-components N": "Leading archive path components to remove.",
+        },
+        "output": COMMAND_RESULT_SCHEMA,
+        "example": "sandbox --workspace-volume work seed-tarball https://example.com/source.tar.gz",
     },
     "dry": {
         "summary": "List safe discovery commands that do not create Modal resources.",
@@ -402,6 +513,36 @@ def _non_empty_value(value: str) -> str:
     return normalized
 
 
+def _public_http_url(value: str) -> str:
+    normalized = _non_empty_value(value)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise argparse.ArgumentTypeError("URL must be HTTP(S)")
+    if parsed.username or parsed.password:
+        raise argparse.ArgumentTypeError("URL must not include embedded credentials")
+    return normalized
+
+
+def _watch_event(value: str) -> str:
+    normalized = _non_empty_value(value)
+    if not all(character.isalnum() or character in "_-" for character in normalized):
+        raise argparse.ArgumentTypeError("watch event names may only contain letters, numbers, dashes, and underscores")
+    return normalized
+
+
+def _readiness_exec(value: str) -> tuple[str, ...]:
+    normalized = _non_empty_value(value)
+    try:
+        parts = tuple(shlex.split(normalized))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"readiness exec command could not be parsed: {exc}") from exc
+    if not parts:
+        raise argparse.ArgumentTypeError("readiness exec command must not be empty")
+    return parts
+
+
 def _sandbox_name(value: str) -> str:
     normalized = _non_empty_value(value)
     if len(normalized) > 63:
@@ -486,29 +627,44 @@ def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
     return tuple(volumes)
 
 
+def _readiness_probe_from_args(args: argparse.Namespace) -> SandboxReadinessProbe | None:
+    if args.readiness_tcp is not None:
+        return SandboxReadinessProbe.tcp(args.readiness_tcp, interval_ms=args.readiness_interval_ms)
+    if args.readiness_exec is not None:
+        return SandboxReadinessProbe.exec(args.readiness_exec, interval_ms=args.readiness_interval_ms)
+    return None
+
+
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
     """Create a sandbox from parsed CLI flags."""
     effective_sandbox_id = cast(str | None, args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id)
     if effective_sandbox_id is not None and args.sandbox_name:
         raise argparse.ArgumentTypeError("--sandbox-id cannot be combined with --sandbox-name")
     if effective_sandbox_id is not None:
-        return Sandbox.create(
-            app_name=args.app_name,
-            workspace=args.workspace,
-            command_timeout=args.timeout,
-            sandbox_timeout=args.sandbox_timeout,
-            max_output_bytes=args.max_output_bytes,
-            sandbox_id=effective_sandbox_id,
-        )
+        attach_kwargs: dict[str, object] = {
+            "app_name": args.app_name,
+            "workspace": args.workspace,
+            "command_timeout": args.timeout,
+            "sandbox_timeout": args.sandbox_timeout,
+            "max_output_bytes": args.max_output_bytes,
+            "sandbox_id": effective_sandbox_id,
+        }
+        volumes = _volumes_from_args(args)
+        if volumes:
+            attach_kwargs["volumes"] = volumes
+        return Sandbox.create(**cast(Any, attach_kwargs))
     if args.sandbox_name:
-        return Sandbox.from_name(
-            args.sandbox_name,
-            app_name=args.app_name,
-            workspace=args.workspace,
-            command_timeout=args.timeout,
-            sandbox_timeout=args.sandbox_timeout,
-            max_output_bytes=args.max_output_bytes,
-        )
+        attach_kwargs = {
+            "app_name": args.app_name,
+            "workspace": args.workspace,
+            "command_timeout": args.timeout,
+            "sandbox_timeout": args.sandbox_timeout,
+            "max_output_bytes": args.max_output_bytes,
+        }
+        volumes = _volumes_from_args(args)
+        if volumes:
+            attach_kwargs["volumes"] = volumes
+        return Sandbox.from_name(args.sandbox_name, **cast(Any, attach_kwargs))
     if args.block_network and (args.allow_domain or args.allow_cidr or args.allow_inbound_cidr):
         raise argparse.ArgumentTypeError(
             "--block-network cannot be combined with --allow-domain, --allow-cidr, or --allow-inbound-cidr"
@@ -530,6 +686,7 @@ def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | obj
         "max_output_bytes": args.max_output_bytes,
         "encrypted_ports": tuple(args.encrypted_port),
         "unencrypted_ports": tuple(args.unencrypted_port),
+        "readiness_probe": _readiness_probe_from_args(args),
         "sandbox_id": None,
     }
     if args.name:
@@ -634,8 +791,23 @@ def _preflight_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -
         parser.error("--name cannot be used with --sandbox-name")
     if getattr(args, "target_sandbox_id", None) and args.sandbox_name:
         parser.error("sandbox id argument cannot be used with --sandbox-name")
+    readiness_requested = args.readiness_tcp is not None or args.readiness_exec is not None
+    if readiness_requested and (args.sandbox_id or args.sandbox_name):
+        parser.error("readiness probe flags only apply when creating a sandbox")
+    if args.wait_ready and not readiness_requested and not (args.sandbox_id or args.sandbox_name):
+        parser.error("--wait-ready requires --readiness-tcp, --readiness-exec, --sandbox-id, or --sandbox-name")
+    if args.command_name == "wait-ready" and args.wait_ready:
+        parser.error("--wait-ready cannot be combined with wait-ready")
+    if args.command_name == "wait-ready" and readiness_requested:
+        parser.error("readiness probe flags cannot be combined with wait-ready")
+    if args.command_name == "wait-ready" and not (args.sandbox_id or args.sandbox_name):
+        parser.error("wait-ready requires --sandbox-id or --sandbox-name")
+    if args.command_name == "quickstart" and not args.run and (readiness_requested or args.wait_ready):
+        parser.error("readiness flags require quickstart --run or an operational command")
     if args.command_name == "snapshot" and not args.workspace_volume:
         parser.error("snapshot requires --workspace-volume")
+    if args.command_name == "sync" and not args.workspace_volume:
+        parser.error("sync requires --workspace-volume")
     if args.command_name == "domain" and not (args.sandbox_id or args.sandbox_name):
         parser.error("domain requires --sandbox-id or --sandbox-name from a started sandbox")
     if args.command_name == "quickstart" and args.run and (args.sandbox_id or args.sandbox_name):
@@ -704,7 +876,7 @@ def _package_version() -> str:
     try:
         return metadata.version("modal-sandbox-sdk")
     except metadata.PackageNotFoundError:
-        return "0.2.0"
+        return "0.3.0"
 
 
 def _modal_package_info() -> dict[str, object]:
@@ -858,6 +1030,11 @@ def _schema_payload() -> dict[str, object]:
             "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
             "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
             "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
+            "--readiness-tcp PORT": "Create a sandbox with a Modal TCP readiness probe.",
+            "--readiness-exec COMMAND": "Create a sandbox with a Modal exec readiness probe parsed into argv.",
+            "--readiness-interval-ms": "Readiness probe polling interval in milliseconds. Defaults to 100.",
+            "--wait-ready": "Wait for readiness before running an operational command.",
+            "--ready-timeout": "Maximum seconds to wait when --wait-ready is used. Defaults to 300.",
         },
         "path_rules": {
             "relative_paths": "Resolved inside the sandbox workspace.",
@@ -882,7 +1059,17 @@ def _schema_payload() -> dict[str, object]:
                 "upload",
                 "download",
                 "domain",
+                "wait-ready",
                 "snapshot",
+                "snapshot-filesystem",
+                "snapshot-directory",
+                "mount-image",
+                "unmount-image",
+                "stat",
+                "watch",
+                "sync",
+                "seed-git",
+                "seed-tarball",
             ],
             "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
             "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
@@ -1068,6 +1255,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-output-bytes", type=_non_negative_int, default=10 * 1024 * 1024)
     parser.add_argument("--encrypted-port", type=_port, action="append", default=[], metavar="PORT")
     parser.add_argument("--unencrypted-port", type=_port, action="append", default=[], metavar="PORT")
+    readiness_group = parser.add_mutually_exclusive_group()
+    readiness_group.add_argument(
+        "--readiness-tcp",
+        type=_port,
+        metavar="PORT",
+        help="Create the sandbox with a TCP readiness probe for PORT.",
+    )
+    readiness_group.add_argument(
+        "--readiness-exec",
+        type=_readiness_exec,
+        metavar="COMMAND",
+        help="Create the sandbox with an argv-style readiness command parsed from COMMAND.",
+    )
+    parser.add_argument(
+        "--readiness-interval-ms",
+        type=_positive_int,
+        default=100,
+        help="Readiness probe polling interval in milliseconds.",
+    )
+    parser.add_argument(
+        "--wait-ready",
+        action="store_true",
+        help="Wait for the sandbox readiness probe before running the command.",
+    )
+    parser.add_argument("--ready-timeout", type=_positive_int, default=300)
     parser.add_argument(
         "--dry",
         action="store_true",
@@ -1138,7 +1350,56 @@ def build_parser() -> argparse.ArgumentParser:
     domain_parser = subparsers.add_parser("domain", help="Print the public URL for a declared sandbox port.")
     domain_parser.add_argument("port", type=_positive_int)
 
+    wait_ready_parser = subparsers.add_parser("wait-ready", help="Wait for an existing sandbox readiness probe.")
+    wait_ready_parser.add_argument("--timeout", type=_positive_int, default=300, dest="wait_ready_timeout")
+
     subparsers.add_parser("snapshot", help="Create a volume-backed workspace snapshot checkpoint.")
+
+    snapshot_filesystem_parser = subparsers.add_parser(
+        "snapshot-filesystem", help="Create a Modal-native filesystem image snapshot."
+    )
+    snapshot_filesystem_parser.add_argument("--timeout", type=_positive_int, default=55, dest="snapshot_timeout")
+    snapshot_filesystem_ttl = snapshot_filesystem_parser.add_mutually_exclusive_group()
+    snapshot_filesystem_ttl.add_argument("--ttl", type=_non_negative_int, default=30 * 24 * 3600)
+    snapshot_filesystem_ttl.add_argument("--no-ttl", action="store_true")
+
+    snapshot_directory_parser = subparsers.add_parser(
+        "snapshot-directory", help="Create a Modal-native directory image snapshot."
+    )
+    snapshot_directory_parser.add_argument("path")
+    snapshot_directory_parser.add_argument("--timeout", type=_positive_int, default=55, dest="snapshot_timeout")
+    snapshot_directory_ttl = snapshot_directory_parser.add_mutually_exclusive_group()
+    snapshot_directory_ttl.add_argument("--ttl", type=_non_negative_int, default=30 * 24 * 3600)
+    snapshot_directory_ttl.add_argument("--no-ttl", action="store_true")
+
+    mount_image_parser = subparsers.add_parser("mount-image", help="Mount a Modal image snapshot in the sandbox.")
+    mount_image_parser.add_argument("path")
+    mount_image_parser.add_argument("image_id")
+
+    unmount_image_parser = subparsers.add_parser("unmount-image", help="Unmount a Modal image snapshot.")
+    unmount_image_parser.add_argument("path")
+
+    stat_parser = subparsers.add_parser("stat", help="Return metadata for a sandbox path.")
+    stat_parser.add_argument("path")
+
+    watch_parser = subparsers.add_parser("watch", help="Watch a sandbox path for a bounded time.")
+    watch_parser.add_argument("path")
+    watch_parser.add_argument("--timeout", type=_positive_int, required=True, dest="watch_timeout")
+    watch_parser.add_argument("--recursive", action="store_true")
+    watch_parser.add_argument("--event", type=_watch_event, action="append", default=[], dest="watch_events")
+
+    subparsers.add_parser("sync", help="Persist workspace-volume changes immediately.")
+
+    seed_git_parser = subparsers.add_parser("seed-git", help="Clone a public Git repository into the sandbox.")
+    seed_git_parser.add_argument("url", type=_public_http_url)
+    seed_git_parser.add_argument("--dest", default=".")
+    seed_git_parser.add_argument("--ref")
+    seed_git_parser.add_argument("--depth", type=_non_negative_int, default=1)
+
+    seed_tarball_parser = subparsers.add_parser("seed-tarball", help="Extract a public tarball into the sandbox.")
+    seed_tarball_parser.add_argument("url", type=_public_http_url)
+    seed_tarball_parser.add_argument("--dest", default=".")
+    seed_tarball_parser.add_argument("--strip-components", type=_non_negative_int, default=1)
 
     subparsers.add_parser("dry", help="List safe discovery commands that do not create Modal resources.")
 
@@ -1164,6 +1425,10 @@ def _write_content_from_args(args: argparse.Namespace) -> str:
     if args.read_stdin:
         return sys.stdin.read()
     raise argparse.ArgumentTypeError("write requires --content, --content-file, or --stdin")
+
+
+def _snapshot_ttl_from_args(args: argparse.Namespace) -> int | None:
+    return None if getattr(args, "no_ttl", False) else args.ttl
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1208,6 +1473,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command_name == "quickstart":
             sandbox = _sandbox_from_args(args)
+            if args.wait_ready:
+                sandbox.wait_until_ready(timeout=args.ready_timeout)
             result = sandbox.run(QUICKSTART_COMMAND)
             payload = result.to_dict()
             payload["creates_modal_resources"] = True
@@ -1217,7 +1484,13 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command_name == "start":
             sandbox = _sandbox_from_args(args, sandbox_id=None)
+            waited_ready = False
+            if args.wait_ready:
+                sandbox.wait_until_ready(timeout=args.ready_timeout)
+                waited_ready = True
             payload = _start_payload(sandbox)
+            if waited_ready:
+                payload["ready"] = True
             sandbox.detach()
             sandbox = None
             _print_json(payload)
@@ -1256,6 +1529,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         sandbox = _sandbox_from_args(args)
+        if args.command_name == "wait-ready":
+            sandbox.wait_until_ready(timeout=args.wait_ready_timeout)
+            payload: dict[str, object] = {
+                "sandbox_id": sandbox.sandbox_id,
+                "status": "ready",
+                "timeout": args.wait_ready_timeout,
+            }
+            if args.sandbox_name:
+                payload["sandbox_name"] = args.sandbox_name
+            _print_json(payload)
+            return 0
+        if args.wait_ready:
+            sandbox.wait_until_ready(timeout=args.ready_timeout)
         # Each command creates or attaches to a sandbox, performs one operation,
         # and closes it. Richer lifecycle management can layer on later.
         if args.command_name == "run":
@@ -1297,7 +1583,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command_name == "domain":
             _print_json({"port": args.port, "url": sandbox.domain(args.port)})
         elif args.command_name == "snapshot":
-            snapshot = sandbox.create_snapshot()
+            snapshot = sandbox.workspace_checkpoint()
             _print_json(
                 {
                     "kind": snapshot.kind,
@@ -1305,6 +1591,53 @@ def main(argv: list[str] | None = None) -> int:
                     "status": "created",
                     "workspace": snapshot.workspace,
                 }
+            )
+        elif args.command_name == "snapshot-filesystem":
+            snapshot = sandbox.snapshot_filesystem(timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args))
+            payload = snapshot.to_dict()
+            payload["status"] = "created"
+            _print_json(payload)
+        elif args.command_name == "snapshot-directory":
+            snapshot = sandbox.snapshot_directory(
+                args.path, timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args)
+            )
+            payload = snapshot.to_dict()
+            payload["status"] = "created"
+            _print_json(payload)
+        elif args.command_name == "mount-image":
+            sandbox.mount_image(args.path, args.image_id)
+            _print_json({"image_id": args.image_id, "path": args.path, "status": "mounted"})
+        elif args.command_name == "unmount-image":
+            sandbox.unmount_image(args.path)
+            _print_json({"path": args.path, "status": "unmounted"})
+        elif args.command_name == "stat":
+            _print_json(sandbox.stat(args.path).to_dict())
+        elif args.command_name == "watch":
+            events = sandbox.watch(
+                args.path,
+                recursive=args.recursive,
+                timeout=args.watch_timeout,
+                filter=args.watch_events or None,
+            )
+            _print_json(
+                {
+                    "events": [event.to_dict() for event in events],
+                    "path": args.path,
+                    "recursive": args.recursive,
+                    "timeout": args.watch_timeout,
+                }
+            )
+        elif args.command_name == "sync":
+            _print_json(sandbox.sync_workspace().to_dict())
+        elif args.command_name == "seed-git":
+            _print_json(sandbox.seed_git(args.url, destination=args.dest, ref=args.ref, depth=args.depth).to_dict())
+        elif args.command_name == "seed-tarball":
+            _print_json(
+                sandbox.seed_tarball(
+                    args.url,
+                    destination=args.dest,
+                    strip_components=args.strip_components,
+                ).to_dict()
             )
         else:
             parser.error(f"Unknown command: {args.command_name}")

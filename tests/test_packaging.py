@@ -14,7 +14,7 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
     assert data["project"]["authors"] == [{"name": "DaleGrinter1", "email": "dalegrinter1@gmail.com"}]
     assert "License :: OSI Approved :: MIT License" in data["project"]["classifiers"]
     assert data["project"]["urls"]["Repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
-    assert data["project"]["dependencies"] == ["modal>=1.5.0"]
+    assert data["project"]["dependencies"] == ["modal>=1.5,<2"]
     assert data["project"]["scripts"] == {
         "sandbox": "sandbox_cli.cli:main",
     }
@@ -45,16 +45,21 @@ def test_public_imports_are_available() -> None:
     assert hasattr(sdk, "Sandbox")
     assert hasattr(sdk, "CommandResult")
     assert hasattr(sdk, "ModalAuthenticationError")
+    assert hasattr(sdk, "ReadinessProbeSpec")
     assert hasattr(sdk, "RuntimeSpec")
     assert hasattr(sdk, "SandboxCommand")
     assert hasattr(sdk, "SandboxConfigurationError")
     assert hasattr(sdk, "SandboxConfig")
     assert hasattr(sdk, "SandboxError")
     assert hasattr(sdk, "SandboxFile")
+    assert hasattr(sdk, "SandboxFileStat")
+    assert hasattr(sdk, "SandboxImageSnapshot")
+    assert hasattr(sdk, "SandboxReadinessProbe")
     assert hasattr(sdk, "SandboxNotFoundError")
     assert hasattr(sdk, "SandboxProviderError")
     assert hasattr(sdk, "SandboxSnapshot")
     assert hasattr(sdk, "SandboxVolume")
+    assert hasattr(sdk, "SandboxWatchEvent")
     assert hasattr(sdk, "Images")
     assert sdk.CommandResult is commands.CommandResult
     assert sdk.SandboxCommand is commands.SandboxCommand
@@ -64,6 +69,10 @@ def test_public_imports_are_available() -> None:
     assert sdk.SandboxNotFoundError is errors.SandboxNotFoundError
     assert sdk.SandboxProviderError is errors.SandboxProviderError
     assert sdk.SandboxFile is files.SandboxFile
+    assert sdk.SandboxFileStat.__name__ == "SandboxFileStat"
+    assert sdk.SandboxImageSnapshot.__name__ == "SandboxImageSnapshot"
+    assert sdk.SandboxReadinessProbe.__name__ == "SandboxReadinessProbe"
+    assert sdk.SandboxWatchEvent.__name__ == "SandboxWatchEvent"
     assert sdk.SandboxVolume is volumes.SandboxVolume
     assert hasattr(volumes, "VolumeSpec")
 

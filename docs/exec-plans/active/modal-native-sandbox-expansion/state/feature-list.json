@@ -36,32 +36,57 @@
       "title": "Clarify volume checkpoints and Modal-native snapshot APIs",
       "description": "Add workspace_checkpoint plus filesystem/directory snapshot and image mount helpers while preserving create_snapshot compatibility.",
       "priority": 3,
-      "passes": false,
-      "evidence": []
+      "passes": true,
+      "evidence": [
+        "Sandbox.workspace_checkpoint added and create_snapshot remains a compatibility alias",
+        "SandboxImageSnapshot plus snapshot_filesystem, snapshot_directory, mount_image, and unmount_image added without importing Modal at package import time",
+        "CLI commands snapshot-filesystem, snapshot-directory, mount-image, and unmount-image added with generated schema/docs/tests",
+        "uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_cli.py tests/test_packaging.py passed: 161 passed",
+        "./scripts/dev/check.sh passed: 163 passed, 5 skipped"
+      ]
     },
     {
       "id": "filesystem-inspection-and-sync",
       "title": "Expose filesystem stat, watch, and workspace sync helpers",
       "description": "Add JSON-friendly stat/watch wrappers and a sync_workspace helper for volume-backed workflows.",
       "priority": 4,
-      "passes": false,
-      "evidence": []
+      "passes": true,
+      "evidence": [
+        "Sandbox.stat returns SandboxFileStat and Sandbox.watch returns SandboxWatchEvent values",
+        "Sandbox.sync_workspace runs argv-style sync for named workspace volumes",
+        "CLI stat, bounded watch, and sync commands added with schema/docs/tests",
+        "Opt-in live tests now cover stat, sync, and bounded watch",
+        "./scripts/dev/check.sh passed: 163 passed, 5 skipped"
+      ]
     },
     {
       "id": "source-seeding",
       "title": "Add explicit post-create source seeding",
       "description": "Support public git/tarball seeding with argv commands, credential redaction, and secret-based private auth guidance.",
       "priority": 5,
-      "passes": false,
-      "evidence": []
+      "passes": true,
+      "evidence": [
+        "Sandbox.seed_git and Sandbox.seed_tarball use argv-style commands and reject non-HTTP(S) URLs or embedded credentials",
+        "CLI seed-git and seed-tarball commands added without token-taking flags",
+        "Docs direct private-source workflows to Modal secrets, custom images, or caller-provided setup commands",
+        "uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_cli.py tests/test_packaging.py passed: 161 passed",
+        "./scripts/dev/check.sh passed: 163 passed, 5 skipped"
+      ]
     },
     {
       "id": "packaging-and-ci-matrix",
       "title": "Tighten packaging and CI compatibility coverage",
       "description": "Consider a Modal major-version upper bound and add CI coverage across supported Python versions.",
       "priority": 6,
-      "passes": false,
-      "evidence": []
+      "passes": true,
+      "evidence": [
+        "Package version bumped to 0.3.0 and Modal dependency policy set to modal>=1.5,<2",
+        "GitHub Actions test matrix covers Python 3.11, 3.12, and 3.13",
+        "CI includes installed-wheel import and sandbox schema smoke checks",
+        "Local wheel smoke passed for top-level imports and installed sandbox schema",
+        "./scripts/dev/check.sh passed: 163 passed, 5 skipped",
+        "./scripts/execplan/check.sh passed"
+      ]
     }
   ]
 }

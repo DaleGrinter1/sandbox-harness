@@ -18,7 +18,7 @@
 - `sandbox.files`: file write primitives.
 - `sandbox.volumes`: first-class volume mount primitives.
 - `sandbox.errors`: package-specific exceptions.
-- `sandbox.types`: shared typed configuration and snapshot metadata.
+- `sandbox.types`: shared typed configuration, readiness, and snapshot metadata.
 
 ## Design Constraints
 
