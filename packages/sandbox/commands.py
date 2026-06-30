@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Any
+
+from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)

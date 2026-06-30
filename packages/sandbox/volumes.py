@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import ConfigDict
+from pydantic.dataclasses import dataclass
 
 VolumeSpec = str | object
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
 class SandboxVolume:
     """Volume mount requested for a sandbox.
 

@@ -4,10 +4,11 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 ## Active
 
-- [Modal Native Sandbox Expansion](active/modal-native-sandbox-expansion/PLAN_modal-native-sandbox-expansion.md)
+None.
 
 ## Completed
 
+- [Modal Native Sandbox Expansion](completed/modal-native-sandbox-expansion/PLAN_modal-native-sandbox-expansion.md)
 - [Repository Knowledge System](completed/repository-knowledge-system/PLAN_repository-knowledge-system.md)
 - [Release Readiness Hardening](completed/release-readiness-hardening/PLAN_release-readiness-hardening.md)
 

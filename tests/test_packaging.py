@@ -14,7 +14,7 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
     assert data["project"]["authors"] == [{"name": "DaleGrinter1", "email": "dalegrinter1@gmail.com"}]
     assert "License :: OSI Approved :: MIT License" in data["project"]["classifiers"]
     assert data["project"]["urls"]["Repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
-    assert data["project"]["dependencies"] == ["modal>=1.5,<2"]
+    assert data["project"]["dependencies"] == ["modal>=1.5,<2", "pydantic>=2,<3"]
     assert data["project"]["scripts"] == {
         "sandbox": "sandbox_cli.cli:main",
     }

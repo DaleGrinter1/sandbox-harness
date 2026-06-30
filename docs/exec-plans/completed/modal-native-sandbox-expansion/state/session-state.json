@@ -3,7 +3,7 @@
   "schema_version": 1,
   "active_feature": "packaging-and-ci-matrix",
   "blockers": [],
-  "next_action": "Run manual opt-in live Modal validation before cutting the 0.3 release, including readiness probe waits: MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh.",
+  "next_action": "Initiative complete; moved to completed after 0.3.0 release-readiness validation evidence was recorded.",
   "handoff_rules": [
     "Use docs/references/new-agent-prompt.md when assigning this initiative to a new agent.",
     "Read PLAN_modal-native-sandbox-expansion.md before editing state.",
@@ -11,5 +11,5 @@
     "Append progress entries instead of editing old JSONL lines.",
     "Mark passes true only after validation evidence is recorded."
   ],
-  "last_updated": "2026-06-25T02:09:51Z"
+  "last_updated": "2026-06-30T05:41:44Z"
 }

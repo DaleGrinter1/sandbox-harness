@@ -4,6 +4,7 @@ import os
 from collections.abc import Mapping, Sequence
 
 import pytest
+from pydantic import ValidationError
 from sandbox import (
     CommandResult,
     Sandbox,
@@ -213,6 +214,18 @@ def test_run_returns_command_result() -> None:
     assert result.stderr == ""
     assert result.exit_code == 0
     assert result.timed_out is False
+
+
+def test_public_value_objects_are_pydantic_validated() -> None:
+    result = CommandResult("python --version", "Python\n", "", 0, 3)
+
+    assert result.to_dict()["command"] == "python --version"
+
+    with pytest.raises(ValidationError):
+        CommandResult("python --version", "Python\n", "", 0, "slow")  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        SandboxFile(path="app.py", content=object())  # type: ignore[arg-type]
 
 
 def test_nonzero_exit_code_is_returned_not_raised() -> None:

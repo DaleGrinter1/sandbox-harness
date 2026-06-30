@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Any, TypeAlias
+
+from pydantic import ConfigDict
+from pydantic.dataclasses import dataclass
 
 from .volumes import SandboxVolume
 
@@ -130,7 +133,7 @@ class SandboxReadinessProbe:
         return asdict(self)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
 class SandboxConfig:
     """Configuration used to create or attach to a sandbox.
 

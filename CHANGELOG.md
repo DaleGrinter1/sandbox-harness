@@ -9,6 +9,8 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## 0.3.0 - 2026-06-25
 
+- Added Pydantic-backed validation for public SDK value objects while keeping
+  their dataclass-style constructors and `to_dict()` helpers.
 - Added `Sandbox.workspace_checkpoint()` for volume-backed workspace
   checkpoints while keeping `create_snapshot()` as a compatibility alias.
 - Added Modal-native image snapshot helpers:

@@ -20,7 +20,31 @@ The work starts with low-risk hardening: local network-policy validation, execut
 
 ## Outcomes & Retrospective
 
-Pending. Summarize shipped API changes, validation evidence, and deferred follow-up once the initiative completes.
+Completed for the 0.3.0 release readiness pass.
+
+The initiative shipped a larger Modal-native surface while preserving the
+package's small, Modal-first shape: network allowlists, named sandbox lifecycle
+helpers, readiness probes, clearer checkpoint/image snapshot APIs, filesystem
+inspection, workspace sync, public source seeding, Python 3.11/3.12/3.13 CI,
+and Pydantic-backed validation for public SDK value objects.
+
+Validation evidence before completion:
+
+- `./scripts/dev/schema.sh` passed.
+- `./scripts/dev/check.sh` passed: ruff format, ruff lint, pyright, pytest,
+  exec-plan validation, build, CLI help, and CLI schema.
+- Clean-wheel install smoke passed for `dist/modal_sandbox_sdk-0.3.0-py3-none-any.whl`.
+- `MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh` passed:
+  7 passed in 435.92s.
+- Manual short-TTL image snapshot checks passed for `snapshot-filesystem` and
+  `snapshot-directory`.
+- Personal golden path passed: safe discovery, doctor, live quickstart, and a
+  workspace-volume write/run/read cycle using a throwaway Modal volume that was
+  deleted after validation.
+
+Deferred follow-up: keep live Modal validation opt-in and rerun it before any
+future provider-facing release. No additional active implementation work remains
+for this initiative.
 
 ## Context and Orientation
 
