@@ -19,7 +19,9 @@ command, and local readiness checks as JSON. `sandbox --dry` is an alias for the
 same output.
 
 `sandbox schema` prints command metadata, output shapes, lifecycle notes, path
-rules, auth setup commands, and examples as JSON.
+rules, auth setup commands, and examples as JSON. Use
+`sandbox schema --agent` for a compact low-token agent manifest with read
+order, skill routing, safe commands, validation commands, and golden workflows.
 
 `sandbox doctor` reports whether the Modal Python package is importable and
 whether credentials appear to be configured through environment variables or
@@ -33,6 +35,14 @@ Use `sandbox quickstart --run` to create a short-lived sandbox and run
 
 `sandbox schema` includes a `golden_workflows` array so agents can discover the
 same first-run paths documented here.
+
+For lower-token agent orientation, use:
+
+```bash
+uv run sandbox schema --agent
+```
+
+The generated copy lives at `docs/generated/agent-manifest.json`.
 
 Dry commands / safe discovery, no Modal resources:
 

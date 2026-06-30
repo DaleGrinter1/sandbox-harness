@@ -1,0 +1,155 @@
+{
+  "description": "Low-token orientation manifest for agents working with modal-sandbox-sdk.",
+  "docs": {
+    "agent_notes": "docs/references/agents.md",
+    "cli_reference": "docs/references/cli.md",
+    "new_agent_prompt": "docs/references/new-agent-prompt.md",
+    "quality": "docs/QUALITY_SCORE.md",
+    "reliability": "docs/RELIABILITY.md",
+    "security": "docs/SECURITY.md"
+  },
+  "golden_workflows": [
+    {
+      "commands": [
+        "sandbox dry",
+        "sandbox schema",
+        "sandbox doctor",
+        "sandbox quickstart"
+      ],
+      "creates_modal_resources": false,
+      "id": "safe_first_run",
+      "purpose": "Inspect local readiness before creating Modal resources.",
+      "success_signal": "quickstart reports ready_to_run or gives setup next steps."
+    },
+    {
+      "commands": [
+        "sandbox --image py313 quickstart --run",
+        "sandbox --image py313 run \"python -c 'print(123)'\""
+      ],
+      "creates_modal_resources": true,
+      "id": "short_lived_command",
+      "purpose": "Create one short-lived sandbox and verify command execution.",
+      "success_signal": "command JSON has exit_code 0 and expected stdout."
+    },
+    {
+      "commands": [
+        "sandbox --image py313 --workspace-volume work write app.py --content \"print(123)\"",
+        "sandbox --image py313 --workspace-volume work run \"python app.py\"",
+        "sandbox --image py313 --workspace-volume work read app.py",
+        "sandbox --image py313 --workspace-volume work snapshot",
+        "sandbox --image py313 --workspace-volume work sync"
+      ],
+      "creates_modal_resources": true,
+      "id": "persistent_workspace_files",
+      "purpose": "Preserve files across separate CLI calls using a Modal workspace volume.",
+      "success_signal": "read returns the file content, snapshot names the workspace volume, and sync exits 0."
+    },
+    {
+      "commands": [
+        "sandbox --image py313 --name agent-workspace start",
+        "sandbox --sandbox-name agent-workspace write app.py --content \"print(123)\"",
+        "sandbox --sandbox-name agent-workspace run \"python app.py\"",
+        "sandbox --sandbox-name agent-workspace stop"
+      ],
+      "creates_modal_resources": true,
+      "id": "long_lived_reuse",
+      "purpose": "Reuse one live sandbox for iterative work, then terminate it.",
+      "success_signal": "start returns sandbox_id and sandbox_name; stop returns status terminated."
+    }
+  ],
+  "live_modal": {
+    "commands": [
+      "quickstart --run",
+      "start",
+      "stop",
+      "run",
+      "run-command",
+      "write",
+      "read",
+      "ls",
+      "mkdir",
+      "rm",
+      "upload",
+      "download",
+      "domain",
+      "wait-ready",
+      "snapshot",
+      "snapshot-filesystem",
+      "snapshot-directory",
+      "mount-image",
+      "unmount-image",
+      "stat",
+      "watch",
+      "sync",
+      "seed-git",
+      "seed-tarball"
+    ],
+    "opt_in_test_command": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
+    "requires_explicit_user_request": true
+  },
+  "name": "sandbox-agent-manifest",
+  "package": "modal-sandbox-sdk",
+  "path_rules": {
+    "absolute_paths": "Used as absolute paths inside the sandbox.",
+    "relative_paths": "Resolved inside the sandbox workspace.",
+    "workspace_escape": "Relative paths using '..' cannot escape the workspace."
+  },
+  "planning": {
+    "active_plan_rule": "If active initiatives exist, read their PLAN file and JSON/JSONL state before editing.",
+    "completed_plan_rule": "Do not read completed plan state unless doing archaeology or release retrospective work.",
+    "index": "docs/exec-plans/index.md"
+  },
+  "product_boundary": [
+    "Small Python SDK and JSON-first CLI for Modal Sandbox workflows.",
+    "Not a generic sandbox platform or replacement for Modal's full SDK.",
+    "Keep Modal imported lazily and default validation resource-free."
+  ],
+  "read_order": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "docs/PRODUCT_SENSE.md",
+    "docs/references/cli.md",
+    "docs/exec-plans/index.md"
+  ],
+  "safe_discovery": {
+    "commands": [
+      "sandbox dry",
+      "sandbox schema --agent",
+      "sandbox schema",
+      "sandbox doctor",
+      "sandbox quickstart"
+    ],
+    "creates_modal_resources": false
+  },
+  "schema_version": "1",
+  "skills": {
+    "cli_workflows": {
+      "path": ".agents/skills/modal-sandbox-cli-workflows/SKILL.md",
+      "purpose": "Safe discovery, live Modal command choices, volume workflows, and JSON output interpretation."
+    },
+    "modal_upstream": {
+      "path": ".agents/skills/modal/SKILL.md",
+      "purpose": "Modal-owned SDK guidance when installed; repo-local skills remain source of truth for this package."
+    },
+    "package_maintenance": {
+      "path": ".agents/skills/modal-sandbox-package-maintenance/SKILL.md",
+      "purpose": "SDK, CLI, provider, docs, tests, packaging, and release-facing changes."
+    },
+    "repo_understanding": {
+      "path": ".agents/skills/modal-sandbox-repo-understanding/SKILL.md",
+      "purpose": "Repo orientation, product boundaries, golden workflows, and planning state."
+    },
+    "understanding_check": {
+      "path": ".agents/skills/modal-sandbox-understanding-check/SKILL.md",
+      "purpose": "Quiz or coach users on repo architecture, workflows, docs, and validation rules."
+    }
+  },
+  "validation": {
+    "exec_plan_state": "./scripts/execplan/check.sh",
+    "full_no_resource": "./scripts/dev/check.sh",
+    "live_modal": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
+    "quick_no_resource": "./scripts/dev/quickstart.sh",
+    "schema_codegen": "./scripts/dev/schema.sh"
+  },
+  "version": "0.3.0"
+}

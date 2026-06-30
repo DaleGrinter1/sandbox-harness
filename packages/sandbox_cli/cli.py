@@ -119,6 +119,39 @@ GOLDEN_WORKFLOWS = [
     },
 ]
 
+PATH_RULES = {
+    "relative_paths": "Resolved inside the sandbox workspace.",
+    "absolute_paths": "Used as absolute paths inside the sandbox.",
+    "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
+}
+
+LIVE_MODAL_COMMANDS = [
+    "quickstart --run",
+    "start",
+    "stop",
+    "run",
+    "run-command",
+    "write",
+    "read",
+    "ls",
+    "mkdir",
+    "rm",
+    "upload",
+    "download",
+    "domain",
+    "wait-ready",
+    "snapshot",
+    "snapshot-filesystem",
+    "snapshot-directory",
+    "mount-image",
+    "unmount-image",
+    "stat",
+    "watch",
+    "sync",
+    "seed-git",
+    "seed-tarball",
+]
+
 COMMAND_RESULT_SCHEMA = {
     "command": "string",
     "stdout": "string",
@@ -129,6 +162,29 @@ COMMAND_RESULT_SCHEMA = {
     "stdout_truncated": "boolean",
     "stderr_truncated": "boolean",
     "max_output_bytes": "integer|null",
+}
+
+AGENT_SKILLS = {
+    "repo_understanding": {
+        "path": ".agents/skills/modal-sandbox-repo-understanding/SKILL.md",
+        "purpose": "Repo orientation, product boundaries, golden workflows, and planning state.",
+    },
+    "cli_workflows": {
+        "path": ".agents/skills/modal-sandbox-cli-workflows/SKILL.md",
+        "purpose": "Safe discovery, live Modal command choices, volume workflows, and JSON output interpretation.",
+    },
+    "package_maintenance": {
+        "path": ".agents/skills/modal-sandbox-package-maintenance/SKILL.md",
+        "purpose": "SDK, CLI, provider, docs, tests, packaging, and release-facing changes.",
+    },
+    "understanding_check": {
+        "path": ".agents/skills/modal-sandbox-understanding-check/SKILL.md",
+        "purpose": "Quiz or coach users on repo architecture, workflows, docs, and validation rules.",
+    },
+    "modal_upstream": {
+        "path": ".agents/skills/modal/SKILL.md",
+        "purpose": "Modal-owned SDK guidance when installed; repo-local skills remain source of truth for this package.",
+    },
 }
 
 COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
@@ -399,7 +455,7 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "summary": "Print this machine-readable CLI schema.",
         "creates_sandbox": False,
         "arguments": {},
-        "options": {},
+        "options": {"--agent": "Print a compact agent manifest instead of the full CLI schema."},
         "output": {"schema_version": "string", "commands": "object"},
         "example": "sandbox schema",
     },
@@ -1092,41 +1148,12 @@ def _schema_payload() -> dict[str, object]:
             "--wait-ready": "Wait for readiness before running an operational command.",
             "--ready-timeout": "Maximum seconds to wait when --wait-ready is used. Defaults to 300.",
         },
-        "path_rules": {
-            "relative_paths": "Resolved inside the sandbox workspace.",
-            "absolute_paths": "Used as absolute paths inside the sandbox.",
-            "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
-        },
+        "path_rules": PATH_RULES,
         "lifecycle": {
             "creates_or_attaches_per_command": True,
             "dry_commands": _dry_command_names(),
             "safe_discovery_commands": _dry_command_names(),
-            "live_modal_commands": [
-                "quickstart --run",
-                "start",
-                "stop",
-                "run",
-                "run-command",
-                "write",
-                "read",
-                "ls",
-                "mkdir",
-                "rm",
-                "upload",
-                "download",
-                "domain",
-                "wait-ready",
-                "snapshot",
-                "snapshot-filesystem",
-                "snapshot-directory",
-                "mount-image",
-                "unmount-image",
-                "stat",
-                "watch",
-                "sync",
-                "seed-git",
-                "seed-tarball",
-            ],
+            "live_modal_commands": LIVE_MODAL_COMMANDS,
             "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
             "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
             "created_sandboxes_close_behavior": "terminate",
@@ -1155,6 +1182,73 @@ def _schema_payload() -> dict[str, object]:
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
         "golden_workflows": GOLDEN_WORKFLOWS,
         "commands": COMMANDS_SCHEMA,
+    }
+
+
+def _agent_manifest_payload() -> dict[str, object]:
+    """Build a compact low-token manifest for coding agents.
+
+    Returns:
+        JSON-serializable agent orientation data. This intentionally omits the
+        full command schema; agents can call `sandbox schema` when they need
+        command-level detail.
+    """
+    return {
+        "name": "sandbox-agent-manifest",
+        "package": "modal-sandbox-sdk",
+        "version": _package_version(),
+        "schema_version": CLI_SCHEMA_VERSION,
+        "description": "Low-token orientation manifest for agents working with modal-sandbox-sdk.",
+        "product_boundary": [
+            "Small Python SDK and JSON-first CLI for Modal Sandbox workflows.",
+            "Not a generic sandbox platform or replacement for Modal's full SDK.",
+            "Keep Modal imported lazily and default validation resource-free.",
+        ],
+        "read_order": [
+            "AGENTS.md",
+            "ARCHITECTURE.md",
+            "docs/PRODUCT_SENSE.md",
+            "docs/references/cli.md",
+            "docs/exec-plans/index.md",
+        ],
+        "skills": AGENT_SKILLS,
+        "safe_discovery": {
+            "creates_modal_resources": False,
+            "commands": [
+                "sandbox dry",
+                "sandbox schema --agent",
+                "sandbox schema",
+                "sandbox doctor",
+                "sandbox quickstart",
+            ],
+        },
+        "live_modal": {
+            "requires_explicit_user_request": True,
+            "opt_in_test_command": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
+            "commands": LIVE_MODAL_COMMANDS,
+        },
+        "golden_workflows": GOLDEN_WORKFLOWS,
+        "path_rules": PATH_RULES,
+        "validation": {
+            "quick_no_resource": "./scripts/dev/quickstart.sh",
+            "full_no_resource": "./scripts/dev/check.sh",
+            "schema_codegen": "./scripts/dev/schema.sh",
+            "exec_plan_state": "./scripts/execplan/check.sh",
+            "live_modal": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
+        },
+        "planning": {
+            "index": "docs/exec-plans/index.md",
+            "active_plan_rule": "If active initiatives exist, read their PLAN file and JSON/JSONL state before editing.",
+            "completed_plan_rule": "Do not read completed plan state unless doing archaeology or release retrospective work.",
+        },
+        "docs": {
+            "agent_notes": "docs/references/agents.md",
+            "new_agent_prompt": "docs/references/new-agent-prompt.md",
+            "cli_reference": "docs/references/cli.md",
+            "quality": "docs/QUALITY_SCORE.md",
+            "reliability": "docs/RELIABILITY.md",
+            "security": "docs/SECURITY.md",
+        },
     }
 
 
@@ -1483,7 +1577,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("dry", help="List safe discovery commands that do not create Modal resources.")
 
-    subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
+    schema_parser = subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
+    schema_parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Print a compact low-token agent manifest instead of the full CLI schema.",
+    )
 
     subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
 
@@ -1727,7 +1826,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_json(_dry_payload())
         return 0
     if args.command_name == "schema":
-        _print_json(_schema_payload())
+        _print_json(_agent_manifest_payload() if args.agent else _schema_payload())
         return 0
     if args.command_name == "doctor":
         _print_json(_doctor_payload())

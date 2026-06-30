@@ -1234,10 +1234,54 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
     assert FakeSandbox.instances == []
 
 
+def test_cli_schema_agent_outputs_compact_manifest_without_creating_sandbox(monkeypatch, capsys) -> None:
+    FakeSandbox.raise_auth_error = True
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    monkeypatch.setattr(cli, "_package_version", lambda: "0.3.0")
+
+    assert cli.main(["schema", "--agent"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["name"] == "sandbox-agent-manifest"
+    assert payload["version"] == "0.3.0"
+    assert payload["schema_version"] == "1"
+    assert "commands" not in payload
+    assert payload["safe_discovery"] == {
+        "creates_modal_resources": False,
+        "commands": [
+            "sandbox dry",
+            "sandbox schema --agent",
+            "sandbox schema",
+            "sandbox doctor",
+            "sandbox quickstart",
+        ],
+    }
+    assert payload["live_modal"]["requires_explicit_user_request"] is True
+    assert "quickstart --run" in payload["live_modal"]["commands"]
+    assert payload["skills"]["repo_understanding"]["path"].endswith("modal-sandbox-repo-understanding/SKILL.md")
+    assert payload["skills"]["package_maintenance"]["purpose"]
+    assert payload["validation"]["full_no_resource"] == "./scripts/dev/check.sh"
+    assert payload["planning"]["index"] == "docs/exec-plans/index.md"
+    assert [workflow["id"] for workflow in payload["golden_workflows"]] == [
+        "safe_first_run",
+        "short_lived_command",
+        "persistent_workspace_files",
+        "long_lived_reuse",
+    ]
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
 def test_generated_cli_schema_matches_runtime_contract() -> None:
     generated_schema = json.loads(Path("docs/generated/cli-schema.json").read_text(encoding="utf-8"))
 
     assert generated_schema == cli._schema_payload()
+
+
+def test_generated_agent_manifest_matches_runtime_contract() -> None:
+    generated_manifest = json.loads(Path("docs/generated/agent-manifest.json").read_text(encoding="utf-8"))
+
+    assert generated_manifest == cli._agent_manifest_payload()
 
 
 @pytest.mark.parametrize("argv", [["--dry"], ["dry"], ["schema"], ["doctor"], ["quickstart"]])

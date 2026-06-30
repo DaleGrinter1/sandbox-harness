@@ -10,10 +10,16 @@ Use the dry-command safe discovery sequence before creating Modal resources:
 
 ```bash
 uv run sandbox dry
+uv run sandbox schema --agent
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
 ```
+
+`sandbox schema --agent` is the lowest-token machine-readable orientation
+payload. It includes read order, repo-local skill routing, safe commands, live
+Modal guardrails, golden workflows, and validation commands. A generated copy
+lives at `docs/generated/agent-manifest.json`.
 
 If `doctor` reports `ready: true`, the first live verification command is:
 

@@ -53,3 +53,9 @@ Use markdown for the narrative plan only. Implementation checklist and handoff s
 - Default tests must not create real Modal resources.
 - Run the narrowest useful command for code changes.
 - Validate exec-plan state with `./scripts/execplan/check.sh`.
+
+## Agent Harness Efficiency
+
+- Use `uv run sandbox schema --agent` for low-token machine-readable repo
+  orientation before reading the full CLI schema.
+- The generated agent manifest lives at `docs/generated/agent-manifest.json`.

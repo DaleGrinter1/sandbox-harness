@@ -260,7 +260,9 @@
       "arguments": {},
       "creates_sandbox": false,
       "example": "sandbox schema",
-      "options": {},
+      "options": {
+        "--agent": "Print a compact agent manifest instead of the full CLI schema."
+      },
       "output": {
         "commands": "object",
         "schema_version": "string"

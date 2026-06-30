@@ -22,6 +22,7 @@ Product boundary:
 
 Start with dry commands only:
 - uv run sandbox dry
+- uv run sandbox schema --agent
 - uv run sandbox schema
 - uv run sandbox doctor
 - uv run sandbox quickstart
@@ -68,6 +69,7 @@ resources:
 
 ```bash
 uv run sandbox dry
+uv run sandbox schema --agent
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
@@ -76,7 +78,9 @@ uv run sandbox quickstart
 
 The machine-readable CLI schema exposes the same concept under
 `lifecycle.dry_commands` and `lifecycle.safe_discovery_commands`.
-`uv run sandbox --dry` is an alias for `uv run sandbox dry`.
+`uv run sandbox --dry` is an alias for `uv run sandbox dry`. Use
+`uv run sandbox schema --agent` when token budget matters and the agent needs
+orientation rather than full command metadata.
 
 ## Exec-Plan Check
 

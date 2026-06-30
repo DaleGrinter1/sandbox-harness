@@ -7,6 +7,9 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## Unreleased
 
+- Added `sandbox schema --agent` and generated `docs/generated/agent-manifest.json`
+  for low-token agent orientation.
+
 ## 0.3.0 - 2026-06-25
 
 - Added Pydantic-backed validation for public SDK value objects while keeping
