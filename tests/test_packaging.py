@@ -30,6 +30,7 @@ def test_project_metadata_matches_modal_sandbox_sdk_identity() -> None:
         "pyright>=1.1.407",
         "pytest>=8.0",
         "ruff>=0.14.0",
+        "twine>=6.2.0",
     ]
     assert data["tool"]["ruff"]["line-length"] == 120
     assert data["tool"]["pyright"]["typeCheckingMode"] == "basic"

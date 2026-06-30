@@ -16,7 +16,7 @@ Use it when you want to:
 
 ## Quick Start
 
-Install the package:
+Install the package (requires Python 3.11+):
 
 ```bash
 pip install modal-sandbox-sdk

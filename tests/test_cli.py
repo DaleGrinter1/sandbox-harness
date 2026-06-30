@@ -236,10 +236,16 @@ class FakeSandbox:
         return self.run_command("python", ["-c", "extract", tarball_url, destination, str(strip_components)])
 
 
-def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
+@pytest.fixture(autouse=True)
+def reset_fake_sandbox() -> None:
     FakeSandbox.create_calls = []
+    FakeSandbox.from_id_calls = []
+    FakeSandbox.from_name_calls = []
     FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = False
+
+
+def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -298,9 +304,6 @@ def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
 
 
 def test_cli_write_read_and_ls(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["write", "game.py", "--content", "print('hello')"]) == 0
@@ -317,9 +320,6 @@ def test_cli_write_read_and_ls(monkeypatch, capsys) -> None:
 
 
 def test_cli_write_accepts_content_file(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     content_file = tmp_path / "input.py"
     content_file.write_text("print('from file')\n", encoding="utf-8")
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -332,9 +332,6 @@ def test_cli_write_accepts_content_file(monkeypatch, capsys, tmp_path) -> None:
 
 
 def test_cli_write_accepts_stdin(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
     monkeypatch.setattr(sys, "stdin", type("FakeStdin", (), {"read": lambda self: "print('stdin')\n"})())
 
@@ -346,9 +343,6 @@ def test_cli_write_accepts_stdin(monkeypatch, capsys) -> None:
 
 
 def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["run", "--cwd", "/tmp", "--use-command-exit-code", "sh -c 'exit 7'"])
@@ -360,9 +354,6 @@ def test_cli_run_can_pass_cwd_and_return_command_exit_code(monkeypatch, capsys) 
 
 
 def test_cli_run_passes_max_output_bytes(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--max-output-bytes", "2048", "run", "echo ok"])
@@ -374,9 +365,6 @@ def test_cli_run_passes_max_output_bytes(monkeypatch, capsys) -> None:
 
 
 def test_cli_create_accepts_runtime_and_declared_ports(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -405,9 +393,6 @@ def test_cli_create_accepts_runtime_and_declared_ports(monkeypatch, capsys) -> N
 
 
 def test_cli_create_accepts_name_and_tags(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -431,9 +416,6 @@ def test_cli_create_accepts_name_and_tags(monkeypatch, capsys) -> None:
 
 
 def test_cli_create_accepts_outbound_domain_allowlist(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -454,9 +436,6 @@ def test_cli_create_accepts_outbound_domain_allowlist(monkeypatch, capsys) -> No
 
 
 def test_cli_create_accepts_cidr_allowlists(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -478,9 +457,6 @@ def test_cli_create_accepts_cidr_allowlists(monkeypatch, capsys) -> None:
 
 
 def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -577,9 +553,6 @@ def test_cli_invalid_volume_reports_json_argument_error(monkeypatch, capsys) -> 
 def test_cli_invalid_global_configuration_reports_argument_error_without_creating_sandbox(
     monkeypatch, capsys, argv, message
 ) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -596,9 +569,6 @@ def test_cli_invalid_global_configuration_reports_argument_error_without_creatin
 
 
 def test_cli_run_command_uses_argv_api(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -636,9 +606,6 @@ def test_cli_run_command_can_return_command_exit_code(monkeypatch, capsys) -> No
         ) -> CommandResult:
             return CommandResult("false", "", "", 7, 1, max_output_bytes=max_output_bytes)
 
-    NonzeroSandbox.create_calls = []
-    NonzeroSandbox.instances = []
-    NonzeroSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", NonzeroSandbox)
 
     exit_code = cli.main(["run-command", "--use-command-exit-code", "false"])
@@ -649,10 +616,6 @@ def test_cli_run_command_can_return_command_exit_code(monkeypatch, capsys) -> No
 
 
 def test_cli_run_can_attach_to_named_sandbox(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.from_name_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--sandbox-name", "agent-workspace", "run", "python --version"])
@@ -674,9 +637,6 @@ def test_cli_run_can_attach_to_named_sandbox(monkeypatch, capsys) -> None:
 
 
 def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["--sandbox-id", "sb-123", "domain", "3000"]) == 0
@@ -699,9 +659,6 @@ def test_cli_domain_and_snapshot(monkeypatch, capsys) -> None:
 
 
 def test_cli_modal_native_snapshot_mount_and_unmount(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["snapshot-filesystem", "--timeout", "7", "--no-ttl"]) == 0
@@ -738,9 +695,6 @@ def test_cli_modal_native_snapshot_mount_and_unmount(monkeypatch, capsys) -> Non
 
 
 def test_cli_stat_watch_sync_and_source_seed(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["stat", "game.py"]) == 0
@@ -782,9 +736,6 @@ def test_cli_stat_watch_sync_and_source_seed(monkeypatch, capsys) -> None:
 
 
 def test_cli_sync_with_attached_sandbox_uses_supplied_workspace_volume(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["--sandbox-id", "sb-123", "--workspace-volume", "work", "sync"]) == 0
@@ -799,9 +750,6 @@ def test_cli_sync_with_attached_sandbox_uses_supplied_workspace_volume(monkeypat
 def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_without_creating_sandbox(
     monkeypatch, capsys
 ) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -824,9 +772,6 @@ def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_witho
 def test_cli_sync_without_workspace_volume_reports_json_argument_error_without_creating_sandbox(
     monkeypatch, capsys
 ) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -846,9 +791,6 @@ def test_cli_sync_without_workspace_volume_reports_json_argument_error_without_c
 def test_cli_domain_without_sandbox_id_reports_json_argument_error_without_creating_sandbox(
     monkeypatch, capsys
 ) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -866,10 +808,6 @@ def test_cli_domain_without_sandbox_id_reports_json_argument_error_without_creat
 
 
 def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.from_id_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--image", "python:3.13-slim", "--sandbox-timeout", "600", "start"])
@@ -890,9 +828,6 @@ def test_cli_start_creates_sandbox_and_detaches_for_reuse(monkeypatch, capsys) -
 
 
 def test_cli_start_can_create_named_sandbox(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--name", "agent-workspace", "--image", "python:3.13-slim", "start"])
@@ -913,9 +848,6 @@ def test_cli_start_can_create_named_sandbox(monkeypatch, capsys) -> None:
 
 
 def test_cli_start_can_wait_for_tcp_readiness(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -944,9 +876,6 @@ def test_cli_start_can_wait_for_tcp_readiness(monkeypatch, capsys) -> None:
 
 
 def test_cli_run_can_wait_for_exec_readiness(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(
@@ -975,9 +904,6 @@ def test_cli_run_can_wait_for_exec_readiness(monkeypatch, capsys) -> None:
 
 
 def test_cli_wait_ready_attaches_to_existing_sandbox(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--sandbox-id", "sb-123", "wait-ready", "--timeout", "60"])
@@ -989,10 +915,6 @@ def test_cli_wait_ready_attaches_to_existing_sandbox(monkeypatch, capsys) -> Non
 
 
 def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.from_id_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["stop", "sb-123"])
@@ -1017,10 +939,6 @@ def test_cli_stop_terminates_existing_sandbox_without_creating_workspace(monkeyp
 
 
 def test_cli_stop_can_terminate_named_sandbox(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.from_name_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     exit_code = cli.main(["--sandbox-name", "agent-workspace", "stop"])
@@ -1044,9 +962,6 @@ def test_cli_stop_can_terminate_named_sandbox(monkeypatch, capsys) -> None:
 
 
 def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     assert cli.main(["mkdir", "notes", "--no-parents"]) == 0
@@ -1079,9 +994,6 @@ def test_cli_mkdir_rm_upload_and_download(monkeypatch, capsys) -> None:
 
 
 def test_cli_invalid_env_reports_error_without_traceback(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -1097,8 +1009,6 @@ def test_cli_invalid_env_reports_error_without_traceback(monkeypatch, capsys) ->
 
 
 def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
@@ -1118,9 +1028,6 @@ def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypat
 
 
 def test_cli_missing_write_content_reports_json_argument_error(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -1136,9 +1043,6 @@ def test_cli_missing_write_content_reports_json_argument_error(monkeypatch, caps
 
 
 def test_cli_write_input_options_are_mutually_exclusive(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
     with pytest.raises(SystemExit) as exc:
@@ -1153,8 +1057,6 @@ def test_cli_write_input_options_are_mutually_exclusive(monkeypatch, capsys) -> 
 
 
 def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
     monkeypatch.setattr(cli, "_package_version", lambda: "0.1.0")
@@ -1264,8 +1166,6 @@ def test_cli_schema_outputs_machine_readable_metadata_without_creating_sandbox(m
 
 
 def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
     monkeypatch.setattr(cli, "_package_version", lambda: "0.1.0")
@@ -1342,8 +1242,6 @@ def test_generated_cli_schema_matches_runtime_contract() -> None:
 
 @pytest.mark.parametrize("argv", [["--dry"], ["dry"], ["schema"], ["doctor"], ["quickstart"]])
 def test_safe_discovery_commands_never_create_sandboxes(monkeypatch, capsys, tmp_path, argv) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1361,8 +1259,6 @@ def test_safe_discovery_commands_never_create_sandboxes(monkeypatch, capsys, tmp
 
 
 def test_cli_dry_outputs_discovery_metadata_without_creating_sandbox(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1387,9 +1283,6 @@ def test_cli_dry_outputs_discovery_metadata_without_creating_sandbox(monkeypatch
 
 
 def test_cli_persistent_golden_workflow_uses_workspace_volume(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
     common = ["--image", "py313", "--workspace-volume", "work"]
 
@@ -1405,8 +1298,6 @@ def test_cli_persistent_golden_workflow_uses_workspace_volume(monkeypatch, capsy
 
 
 def test_cli_recipes_is_not_a_public_command(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
 
@@ -1423,8 +1314,6 @@ def test_cli_recipes_is_not_a_public_command(monkeypatch, capsys) -> None:
 
 
 def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1457,8 +1346,6 @@ def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch
 
 
 def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1496,8 +1383,6 @@ def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys,
 
 
 def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1592,8 +1477,6 @@ def test_cli_auth_force_overwrites_existing_profile(monkeypatch, capsys, tmp_pat
 
 
 def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp_path) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = True
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
@@ -1617,9 +1500,6 @@ def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp
 
 
 def test_cli_quickstart_run_creates_sandbox_and_respects_global_options(monkeypatch, capsys) -> None:
-    FakeSandbox.create_calls = []
-    FakeSandbox.instances = []
-    FakeSandbox.raise_auth_error = False
     monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
     monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.4.3"})
     monkeypatch.setenv("MODAL_TOKEN_ID", "token-id")

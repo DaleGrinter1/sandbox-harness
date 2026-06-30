@@ -37,6 +37,7 @@ dev = [
     "pyright>=1.1.407",
     "pytest>=8.0",
     "ruff>=0.14.0",
+    "twine>=6.2.0",
 ]
 
 [project.scripts]

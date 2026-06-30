@@ -34,6 +34,7 @@ _TRANSIENT_ERROR_KEYWORDS = frozenset(
 def _is_transient_error(exc: Exception) -> bool:
     return any(kw in str(exc).lower() for kw in _TRANSIENT_ERROR_KEYWORDS)
 
+
 MODAL_AUTH_GUIDANCE = """Modal authentication is required to use Modal sandboxes.
 
 Run one of these commands to sign in:
@@ -697,7 +698,7 @@ class ModalSandboxProvider:
         value = getattr(self._sandbox, "object_id", None) or getattr(self._sandbox, "sandbox_id", None)
         return str(value) if value is not None else None
 
-    def _modal_call(self, operation: Callable[[], T], *, context: str | None = None, max_attempts: int = 3) -> T: # type: ignore
+    def _modal_call(self, operation: Callable[[], T], *, context: str | None = None, max_attempts: int = 3) -> T:  # type: ignore
         """Run a Modal filesystem operation with SDK error translation and retry.
 
         Retries up to `max_attempts` times on transient network errors with

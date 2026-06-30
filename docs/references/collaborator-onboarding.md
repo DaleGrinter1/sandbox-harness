@@ -65,7 +65,6 @@ For the default non-live validation suite, use:
 - `CONTRIBUTING.md`: private-team contribution flow and validation choices.
 - `docs/references/cli.md`: stable CLI workflows and command lifecycle notes.
 - `docs/references/development.md`: local validation and release checks.
-- `docs/FRONTEND.md`: frontend-specific guardrails and Modal workflows.
 - `examples/`: small SDK and CLI examples to copy or review.
 
 Useful examples for a frontend collaborator:

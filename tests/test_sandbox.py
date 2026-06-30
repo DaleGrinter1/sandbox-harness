@@ -4,7 +4,6 @@ import os
 from collections.abc import Mapping, Sequence
 
 import pytest
-from sandbox.sandbox import TARBALL_SEED_SCRIPT
 from sandbox import (
     CommandResult,
     Sandbox,
@@ -22,6 +21,7 @@ from sandbox import (
     SandboxVolume,
     SandboxWatchEvent,
 )
+from sandbox.sandbox import TARBALL_SEED_SCRIPT
 
 
 class FakeProvider:

@@ -919,9 +919,7 @@ def _modal_config_path() -> Path:
     return Path.home() / ".modal.toml"
 
 
-def _write_modal_toml(
-    config_path: Path, profile: str, token_id: str, token_secret: str, *, force: bool
-) -> None:
+def _write_modal_toml(config_path: Path, profile: str, token_id: str, token_secret: str, *, force: bool) -> None:
     """Write a Modal credential profile to the toml config file.
 
     Reads any existing profiles first so other sections are preserved.
@@ -936,9 +934,7 @@ def _write_modal_toml(
             existing = tomllib.load(f)
 
     if profile in existing and not force:
-        raise ValueError(
-            f"Profile {profile!r} already exists in {config_path}. Use --force to overwrite."
-        )
+        raise ValueError(f"Profile {profile!r} already exists in {config_path}. Use --force to overwrite.")
 
     if profile in existing:
         existing[profile]["token_id"] = token_id
@@ -1395,7 +1391,10 @@ def build_parser() -> argparse.ArgumentParser:
     write_input.add_argument("--stdin", action="store_true", dest="read_stdin", help="Read UTF-8 text from stdin.")
     write_input.add_argument("--binary-file", metavar="PATH", help="Local binary file to read and write as bytes.")
     write_input.add_argument(
-        "--binary-stdin", action="store_true", dest="binary_stdin", help="Read raw bytes from stdin and write as binary."
+        "--binary-stdin",
+        action="store_true",
+        dest="binary_stdin",
+        help="Read raw bytes from stdin and write as binary.",
     )
 
     read_parser = subparsers.add_parser("read", help="Read a text file inside the sandbox workspace.")
@@ -1474,7 +1473,9 @@ def build_parser() -> argparse.ArgumentParser:
     seed_tarball_parser.add_argument("--dest", default=".")
     seed_tarball_parser.add_argument("--strip-components", type=_non_negative_int, default=1)
 
-    auth_parser = subparsers.add_parser("auth", help="Write Modal credentials to ~/.modal.toml for non-interactive use.")
+    auth_parser = subparsers.add_parser(
+        "auth", help="Write Modal credentials to ~/.modal.toml for non-interactive use."
+    )
     auth_parser.add_argument("--token-id", required=True, dest="token_id", help="Modal token ID.")
     auth_parser.add_argument("--token-secret", required=True, dest="token_secret", help="Modal token secret.")
     auth_parser.add_argument("--profile", default="default", help="Modal config profile to write (default: 'default').")
@@ -1507,7 +1508,9 @@ def _write_content_from_args(args: argparse.Namespace) -> str | bytes:
         return Path(args.content_file).read_text(encoding="utf-8")
     if args.read_stdin:
         return sys.stdin.read()
-    raise argparse.ArgumentTypeError("write requires --content, --content-file, --stdin, --binary-file, or --binary-stdin")
+    raise argparse.ArgumentTypeError(
+        "write requires --content, --content-file, --stdin, --binary-file, or --binary-stdin"
+    )
 
 
 def _snapshot_ttl_from_args(args: argparse.Namespace) -> int | None:
@@ -1616,9 +1619,7 @@ def _cmd_snapshot_filesystem(args: argparse.Namespace, sandbox: Sandbox) -> int:
 
 
 def _cmd_snapshot_directory(args: argparse.Namespace, sandbox: Sandbox) -> int:
-    snapshot = sandbox.snapshot_directory(
-        args.path, timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args)
-    )
+    snapshot = sandbox.snapshot_directory(args.path, timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args))
     payload = snapshot.to_dict()
     payload["status"] = "created"
     _print_json(payload)
@@ -1649,12 +1650,14 @@ def _cmd_watch(args: argparse.Namespace, sandbox: Sandbox) -> int:
         timeout=args.watch_timeout,
         filter=args.watch_events or None,
     )
-    _print_json({
-        "events": [event.to_dict() for event in events],
-        "path": args.path,
-        "recursive": args.recursive,
-        "timeout": args.watch_timeout,
-    })
+    _print_json(
+        {
+            "events": [event.to_dict() for event in events],
+            "path": args.path,
+            "recursive": args.recursive,
+            "timeout": args.watch_timeout,
+        }
+    )
     return 0
 
 
@@ -1669,9 +1672,7 @@ def _cmd_seed_git(args: argparse.Namespace, sandbox: Sandbox) -> int:
 
 
 def _cmd_seed_tarball(args: argparse.Namespace, sandbox: Sandbox) -> int:
-    _print_json(
-        sandbox.seed_tarball(args.url, destination=args.dest, strip_components=args.strip_components).to_dict()
-    )
+    _print_json(sandbox.seed_tarball(args.url, destination=args.dest, strip_components=args.strip_components).to_dict())
     return 0
 
 
@@ -1741,7 +1742,14 @@ def main(argv: list[str] | None = None) -> int:
             _write_modal_toml(config_path, args.profile, args.token_id, args.token_secret, force=args.force)
         except ValueError as exc:
             _exit_with_error(parser, "auth_error", str(exc), 1)
-        _print_json({"status": "configured", "profile": args.profile, "config_path": str(config_path), "creates_modal_resources": False})
+        _print_json(
+            {
+                "status": "configured",
+                "profile": args.profile,
+                "config_path": str(config_path),
+                "creates_modal_resources": False,
+            }
+        )
         return 0
 
     sandbox: Sandbox | None = None

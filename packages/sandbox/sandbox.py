@@ -684,9 +684,7 @@ class Sandbox:
         for mode, paths in chmod_by_mode.items():
             result = self.run_command("chmod", [f"{mode:o}", *paths])
             if result.exit_code not in (0, None):
-                raise SandboxProviderError(
-                    f"chmod {mode:o} failed with exit code {result.exit_code}: {result.stderr}"
-                )
+                raise SandboxProviderError(f"chmod {mode:o} failed with exit code {result.exit_code}: {result.stderr}")
 
     def seed_git(
         self,

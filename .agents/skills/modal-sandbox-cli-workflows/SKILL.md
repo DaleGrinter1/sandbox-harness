@@ -13,6 +13,7 @@ The CLI command is `sandbox`. Commands print JSON except `--help` and
 These commands do not create Modal resources:
 
 ```bash
+uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
