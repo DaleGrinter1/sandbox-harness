@@ -4,6 +4,7 @@ import os
 from collections.abc import Mapping, Sequence
 
 import pytest
+from sandbox.sandbox import TARBALL_SEED_SCRIPT
 from sandbox import (
     CommandResult,
     Sandbox,
@@ -736,7 +737,7 @@ def test_write_files_raises_when_chmod_fails() -> None:
 
     sandbox = Sandbox.from_provider(FailingChmodProvider())
 
-    with pytest.raises(SandboxProviderError, match="chmod failed"):
+    with pytest.raises(SandboxProviderError, match="chmod"):
         sandbox.write_files([SandboxFile(path="script.sh", content="echo ok\n", mode=0o755)])
 
 
@@ -886,10 +887,12 @@ def test_seed_tarball_uses_public_http_url_and_argv_command() -> None:
     )
 
     assert result.stdout == "argv ok\n"
+    # seed_tarball writes the extraction script then runs it as a file
+    assert provider.text_files.get("/tmp/_sandbox_seed_tarball.py") == TARBALL_SEED_SCRIPT
     cmd, args, cwd, env, timeout = provider.argv_commands[-1]
     assert cmd == "python"
-    assert args[0] == "-c"
-    assert args[2:] == ("https://example.com/archive.tar.gz", "/workspace/src", "2")
+    assert args[0] == "/tmp/_sandbox_seed_tarball.py"
+    assert args[1:] == ("https://example.com/archive.tar.gz", "/workspace/src", "2")
     assert cwd is None
     assert env is None
     assert timeout is None

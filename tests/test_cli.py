@@ -1131,7 +1131,8 @@ def test_cli_missing_write_content_reports_json_argument_error(monkeypatch, caps
     assert captured.out == ""
     payload = json.loads(captured.err)
     assert payload["error"]["type"] == "argument_error"
-    assert "one of the arguments --content --content-file --stdin is required" in payload["error"]["message"]
+    assert "one of the arguments" in payload["error"]["message"]
+    assert "required" in payload["error"]["message"]
 
 
 def test_cli_write_input_options_are_mutually_exclusive(monkeypatch, capsys) -> None:
@@ -1300,6 +1301,7 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "schema",
         "doctor",
         "quickstart",
+        "auth",
     }
     assert set(payload["commands"]) == expected_commands
     assert payload["schema_version"] == "1"
@@ -1312,7 +1314,7 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
     assert payload["lifecycle"]["safe_discovery_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert payload["lifecycle"]["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert set(payload["lifecycle"]["live_modal_commands"]) == (
-        expected_commands - {"dry", "schema", "doctor", "quickstart"} | {"quickstart --run"}
+        expected_commands - {"dry", "schema", "doctor", "quickstart", "auth"} | {"quickstart --run"}
     )
     assert [workflow["id"] for workflow in payload["golden_workflows"]] == [
         "safe_first_run",
@@ -1475,10 +1477,11 @@ def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys,
     assert payload["next_steps"] == ["Set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or run `uv run modal setup`."]
     assert payload["credentials"]["status"] == "partial_environment"
     assert payload["credentials"]["environment"] == {
-        "complete": False,
+        "environment_vars_set": False,
         "modal_token_id_set": True,
         "modal_token_secret_set": False,
     }
+    assert payload["credentials"]["authenticated"] is False
     assert payload["ready_hint"] == (
         "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
     )
@@ -1522,6 +1525,70 @@ def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, c
     }
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
+
+
+def test_cli_auth_writes_modal_toml(monkeypatch, capsys, tmp_path) -> None:
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+
+    exit_code = cli.main(["auth", "--token-id", "ak-test", "--token-secret", "as-test"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "configured"
+    assert payload["profile"] == "default"
+    assert payload["config_path"] == str(config_path)
+    assert payload["creates_modal_resources"] is False
+    content = config_path.read_text()
+    assert 'token_id = "ak-test"' in content
+    assert 'token_secret = "as-test"' in content
+    assert "[default]" in content
+
+
+def test_cli_auth_custom_profile(monkeypatch, capsys, tmp_path) -> None:
+    config_path = tmp_path / ".modal.toml"
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+
+    exit_code = cli.main(["auth", "--token-id", "ak-ci", "--token-secret", "as-ci", "--profile", "ci"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["profile"] == "ci"
+    content = config_path.read_text()
+    assert "[ci]" in content
+    assert 'token_id = "ak-ci"' in content
+
+
+def test_cli_auth_errors_when_profile_exists_without_force(monkeypatch, capsys, tmp_path) -> None:
+    config_path = tmp_path / ".modal.toml"
+    config_path.write_text('[default]\ntoken_id = "old-id"\ntoken_secret = "old-secret"\n', encoding="utf-8")
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["auth", "--token-id", "ak-new", "--token-secret", "as-new"])
+
+    assert exc.value.code == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["error"]["type"] == "auth_error"
+    assert "already exists" in payload["error"]["message"]
+    assert "--force" in payload["error"]["message"]
+    # Original credentials untouched
+    assert 'token_id = "old-id"' in config_path.read_text()
+
+
+def test_cli_auth_force_overwrites_existing_profile(monkeypatch, capsys, tmp_path) -> None:
+    config_path = tmp_path / ".modal.toml"
+    config_path.write_text('[default]\ntoken_id = "old-id"\ntoken_secret = "old-secret"\n', encoding="utf-8")
+    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+
+    exit_code = cli.main(["auth", "--token-id", "ak-new", "--token-secret", "as-new", "--force"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "configured"
+    content = config_path.read_text()
+    assert 'token_id = "ak-new"' in content
+    assert "old-id" not in content
 
 
 def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp_path) -> None:

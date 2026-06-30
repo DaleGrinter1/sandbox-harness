@@ -33,7 +33,9 @@ RUNTIME_IMAGES = {
 SANDBOX_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
 DEFAULT_IMAGE_SNAPSHOT_TTL = 30 * 24 * 3600
 
-TARBALL_SEED_SCRIPT = r"""
+_TARBALL_SEED_REMOTE_PATH = "/tmp/_sandbox_seed_tarball.py"
+
+TARBALL_SEED_SCRIPT = """\
 import os
 import pathlib
 import sys
@@ -335,50 +337,63 @@ class Sandbox:
         Returns:
             Existing or newly created sandbox.
         """
-        from .errors import SandboxNotFoundError
+        from .errors import SandboxNotFoundError, SandboxProviderError
 
         normalized_name = _normalize_sandbox_name(name)
         if normalized_name is None:
             raise SandboxConfigurationError("sandbox name must not be empty.")
-        try:
-            return cls.from_name(
-                normalized_name,
-                app_name=app_name,
-                workspace=workspace,
-                command_timeout=command_timeout,
-                sandbox_timeout=sandbox_timeout,
-                workdir=workdir,
-                max_output_bytes=max_output_bytes,
-            )
-        except SandboxNotFoundError:
-            sandbox = cls.create(
-                app_name=app_name,
-                name=normalized_name,
-                tags=tags,
-                workspace=workspace,
-                image=image,
-                runtime=runtime,
-                volumes=volumes,
-                env=env,
-                workdir=workdir,
-                command_timeout=command_timeout,
-                sandbox_timeout=sandbox_timeout,
-                cpu=cpu,
-                memory=memory,
-                gpu=gpu,
-                region=region,
-                block_network=block_network,
-                outbound_domain_allowlist=outbound_domain_allowlist,
-                outbound_cidr_allowlist=outbound_cidr_allowlist,
-                inbound_cidr_allowlist=inbound_cidr_allowlist,
-                max_output_bytes=max_output_bytes,
-                encrypted_ports=encrypted_ports,
-                unencrypted_ports=unencrypted_ports,
-                readiness_probe=readiness_probe,
-            )
-            if on_create is not None:
-                on_create(sandbox)
-            return sandbox
+
+        attach_kwargs = dict(
+            app_name=app_name,
+            workspace=workspace,
+            command_timeout=command_timeout,
+            sandbox_timeout=sandbox_timeout,
+            workdir=workdir,
+            max_output_bytes=max_output_bytes,
+        )
+        create_kwargs = dict(
+            app_name=app_name,
+            name=normalized_name,
+            tags=tags,
+            workspace=workspace,
+            image=image,
+            runtime=runtime,
+            volumes=volumes,
+            env=env,
+            workdir=workdir,
+            command_timeout=command_timeout,
+            sandbox_timeout=sandbox_timeout,
+            cpu=cpu,
+            memory=memory,
+            gpu=gpu,
+            region=region,
+            block_network=block_network,
+            outbound_domain_allowlist=outbound_domain_allowlist,
+            outbound_cidr_allowlist=outbound_cidr_allowlist,
+            inbound_cidr_allowlist=inbound_cidr_allowlist,
+            max_output_bytes=max_output_bytes,
+            encrypted_ports=encrypted_ports,
+            unencrypted_ports=unencrypted_ports,
+            readiness_probe=readiness_probe,
+        )
+
+        # Retry once to handle the race where two callers both see "not found"
+        # and then one wins the create; the loser retries from_name.
+        for attempt in range(2):
+            try:
+                return cls.from_name(normalized_name, **attach_kwargs)  # type: ignore[arg-type]
+            except SandboxNotFoundError:
+                pass
+            try:
+                sandbox = cls.create(**create_kwargs)  # type: ignore[arg-type]
+                if on_create is not None:
+                    on_create(sandbox)
+                return sandbox
+            except SandboxProviderError:
+                if attempt == 0:
+                    continue
+                raise
+        raise SandboxNotFoundError(f"Could not find or create sandbox named {normalized_name!r}.")
 
     @classmethod
     def from_snapshot(
@@ -655,6 +670,7 @@ class Sandbox:
             TypeError: If a mapping is missing a string path or string/bytes
                 content.
         """
+        chmod_by_mode: dict[int, list[str]] = {}
         for file in files:
             sandbox_file = _coerce_sandbox_file(file)
             if isinstance(sandbox_file.content, bytes):
@@ -663,11 +679,14 @@ class Sandbox:
                 self.write_text(sandbox_file.path, sandbox_file.content)
             if sandbox_file.mode is not None:
                 chmod_path = sandbox_path(sandbox_file.path, self.config.workspace)
-                result = self.run_command("chmod", [f"{sandbox_file.mode:o}", chmod_path])
-                if result.exit_code not in (0, None):
-                    raise SandboxProviderError(
-                        f"chmod failed for {chmod_path!r} with exit code {result.exit_code}: {result.stderr}"
-                    )
+                chmod_by_mode.setdefault(sandbox_file.mode, []).append(chmod_path)
+
+        for mode, paths in chmod_by_mode.items():
+            result = self.run_command("chmod", [f"{mode:o}", *paths])
+            if result.exit_code not in (0, None):
+                raise SandboxProviderError(
+                    f"chmod {mode:o} failed with exit code {result.exit_code}: {result.stderr}"
+                )
 
     def seed_git(
         self,
@@ -724,7 +743,8 @@ class Sandbox:
         if strip_components < 0:
             raise SandboxConfigurationError("strip_components must be non-negative.")
         target = sandbox_path(destination, self.config.workspace)
-        return self.run_command("python", ["-c", TARBALL_SEED_SCRIPT, tarball_url, target, str(strip_components)])
+        self._provider.write_text(_TARBALL_SEED_REMOTE_PATH, TARBALL_SEED_SCRIPT)
+        return self.run_command("python", [_TARBALL_SEED_REMOTE_PATH, tarball_url, target, str(strip_components)])
 
     def close(self) -> None:
         """Terminate or detach from the underlying sandbox."""
@@ -1078,6 +1098,28 @@ def _validate_domain_allowlist_value(value: str) -> str:
     return value
 
 
+def _validate_cidr_value(value: str, field_name: str) -> str:
+    """Validate a single CIDR allowlist entry.
+
+    Args:
+        value: Already-stripped CIDR string.
+        field_name: Public field name used in error messages.
+
+    Returns:
+        The validated CIDR string.
+
+    Raises:
+        SandboxConfigurationError: If the value is not a valid CIDR range.
+    """
+    if "/" not in value:
+        raise SandboxConfigurationError(f"{field_name} values must be CIDR ranges.")
+    try:
+        ip_network(value, strict=False)
+    except ValueError as exc:
+        raise SandboxConfigurationError(f"{field_name} values must be valid CIDR ranges.") from exc
+    return value
+
+
 def _normalize_cidr_allowlist(cidrs: Sequence[str] | None, field_name: str) -> tuple[str, ...]:
     """Normalize optional CIDR allowlist values.
 
@@ -1102,13 +1144,7 @@ def _normalize_cidr_allowlist(cidrs: Sequence[str] | None, field_name: str) -> t
         value = cidr.strip()
         if not value:
             raise SandboxConfigurationError(f"{field_name} values must not be empty.")
-        if "/" not in value:
-            raise SandboxConfigurationError(f"{field_name} values must be CIDR ranges.")
-        try:
-            ip_network(value, strict=False)
-        except ValueError as exc:
-            raise SandboxConfigurationError(f"{field_name} values must be valid CIDR ranges.") from exc
-        normalized.append(value)
+        normalized.append(_validate_cidr_value(value, field_name))
     return tuple(normalized)
 
 

@@ -27,6 +27,13 @@ Start with dry commands only:
 - uv run sandbox quickstart
 - ./scripts/dev/quickstart.sh
 
+After running `sandbox doctor`, check `credentials.authenticated`:
+- If true, proceed to live commands when the user asks for them.
+- If false, do not run live commands. Report the credential gap to the user.
+  Non-interactive fix: sandbox auth --token-id ID --token-secret SECRET
+  Interactive fix: uv run modal setup
+  Token URL: https://modal.com/settings/tokens
+
 Do not run live Modal commands unless the user explicitly asks for live
 execution. Live commands include quickstart --run, run, run-command, start,
 stop, write, read, ls, mkdir, rm, upload, download, domain, snapshot,

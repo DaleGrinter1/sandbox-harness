@@ -26,6 +26,14 @@ from .volumes import SandboxVolume, VolumeSpec
 
 T = TypeVar("T")
 
+_TRANSIENT_ERROR_KEYWORDS = frozenset(
+    ["connection", "timeout", "network", "unavailable", "retry", "reset", "refused", "temporary"]
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    return any(kw in str(exc).lower() for kw in _TRANSIENT_ERROR_KEYWORDS)
+
 MODAL_AUTH_GUIDANCE = """Modal authentication is required to use Modal sandboxes.
 
 Run one of these commands to sign in:
@@ -689,12 +697,16 @@ class ModalSandboxProvider:
         value = getattr(self._sandbox, "object_id", None) or getattr(self._sandbox, "sandbox_id", None)
         return str(value) if value is not None else None
 
-    def _modal_call(self, operation: Callable[[], T], *, context: str | None = None) -> T:
-        """Run a Modal filesystem operation with SDK error translation.
+    def _modal_call(self, operation: Callable[[], T], *, context: str | None = None, max_attempts: int = 3) -> T: # type: ignore
+        """Run a Modal filesystem operation with SDK error translation and retry.
+
+        Retries up to `max_attempts` times on transient network errors with
+        exponential backoff. Auth errors are never retried.
 
         Args:
             operation: Zero-argument callable that performs the Modal action.
             context: Optional operation description for error messages.
+            max_attempts: Maximum number of attempts before giving up.
 
         Returns:
             Result returned by `operation`.
@@ -703,11 +715,16 @@ class ModalSandboxProvider:
             ModalAuthenticationError: If Modal reports an auth failure.
             SandboxProviderError: For other provider failures.
         """
-        try:
-            return operation()
-        except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context=context)
+        delay = 0.5
+        for attempt in range(max_attempts):
+            try:
+                return operation()
+            except Exception as exc:
+                _translate_modal_auth_error(exc)
+                if attempt < max_attempts - 1 and _is_transient_error(exc):
+                    time.sleep(delay * (2**attempt))
+                    continue
+                _raise_provider_error(exc, context=context)
 
     def run(
         self,

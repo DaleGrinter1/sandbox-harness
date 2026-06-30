@@ -7,6 +7,7 @@ import json
 import os
 import shlex
 import sys
+import tomllib
 from importlib import metadata
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -186,13 +187,15 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "example": "sandbox --runtime python3.13 run-command python -c 'print(123)'",
     },
     "write": {
-        "summary": "Write UTF-8 text to a file inside the sandbox workspace.",
+        "summary": "Write a file inside the sandbox workspace.",
         "creates_sandbox": True,
         "arguments": {"path": "Relative workspace path or absolute sandbox path."},
         "options": {
-            "--content": "Inline text content to write.",
+            "--content": "Inline UTF-8 text content to write.",
             "--content-file": "Local UTF-8 text file to read and write.",
             "--stdin": "Read UTF-8 text from standard input.",
+            "--binary-file": "Local binary file to read and write as bytes.",
+            "--binary-stdin": "Read raw bytes from standard input and write as binary.",
         },
         "output": {"path": "string", "status": "wrote"},
         "example": 'sandbox --workspace-volume work write hello.py --content "print(123)"',
@@ -399,6 +402,24 @@ COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
         "options": {},
         "output": {"schema_version": "string", "commands": "object"},
         "example": "sandbox schema",
+    },
+    "auth": {
+        "summary": "Write Modal credentials to ~/.modal.toml for non-interactive use.",
+        "creates_sandbox": False,
+        "arguments": {},
+        "options": {
+            "--token-id": "Modal token ID (required). Obtain from https://modal.com/settings/tokens.",
+            "--token-secret": "Modal token secret (required).",
+            "--profile": "Modal config profile to write (default: 'default').",
+            "--force": "Overwrite an existing profile entry.",
+        },
+        "output": {
+            "status": "configured",
+            "profile": "string",
+            "config_path": "string",
+            "creates_modal_resources": "false",
+        },
+        "example": "sandbox auth --token-id ak-... --token-secret as-...",
     },
     "doctor": {
         "summary": "Inspect local Modal package and credential setup, with beginner next steps.",
@@ -876,7 +897,7 @@ def _package_version() -> str:
     try:
         return metadata.version("modal-sandbox-sdk")
     except metadata.PackageNotFoundError:
-        return "0.3.0"
+        return "dev"
 
 
 def _modal_package_info() -> dict[str, object]:
@@ -896,6 +917,44 @@ def _modal_package_info() -> dict[str, object]:
 def _modal_config_path() -> Path:
     """Return the default Modal config path checked by `doctor`."""
     return Path.home() / ".modal.toml"
+
+
+def _write_modal_toml(
+    config_path: Path, profile: str, token_id: str, token_secret: str, *, force: bool
+) -> None:
+    """Write a Modal credential profile to the toml config file.
+
+    Reads any existing profiles first so other sections are preserved.
+    Non-string values already in the file are written back with repr().
+
+    Raises:
+        ValueError: When the profile already exists and force is False.
+    """
+    existing: dict[str, dict[str, object]] = {}
+    if config_path.exists():
+        with config_path.open("rb") as f:
+            existing = tomllib.load(f)
+
+    if profile in existing and not force:
+        raise ValueError(
+            f"Profile {profile!r} already exists in {config_path}. Use --force to overwrite."
+        )
+
+    if profile in existing:
+        existing[profile]["token_id"] = token_id
+        existing[profile]["token_secret"] = token_secret
+    else:
+        existing[profile] = {"token_id": token_id, "token_secret": token_secret}
+
+    lines: list[str] = []
+    for section, values in existing.items():
+        lines.append(f"[{section}]")
+        for key, val in values.items():
+            lines.append(f'{key} = "{val}"' if isinstance(val, str) else f"{key} = {val!r}")
+        lines.append("")
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _credential_status() -> dict[str, object]:
@@ -922,10 +981,11 @@ def _credential_status() -> dict[str, object]:
 
     return {
         "status": status,
+        "authenticated": status in {"configured_from_environment", "configured_from_modal_toml"},
         "environment": {
             "modal_token_id_set": env_has_id,
             "modal_token_secret_set": env_has_secret,
-            "complete": has_complete_env,
+            "environment_vars_set": has_complete_env,
         },
         "modal_toml": {
             "path": str(config_path),
@@ -1085,6 +1145,15 @@ def _schema_payload() -> dict[str, object]:
             "requires_modal_credentials": True,
             "setup_commands": SETUP_COMMANDS,
             "environment_variables": ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "MODAL_PROFILE"],
+            "token_acquisition": {
+                "url": "https://modal.com/settings/tokens",
+                "description": (
+                    "Create a token at the Modal dashboard, then set MODAL_TOKEN_ID and "
+                    "MODAL_TOKEN_SECRET for non-interactive use, or run "
+                    "`sandbox auth --token-id ID --token-secret SECRET` to write ~/.modal.toml."
+                ),
+                "non_interactive_command": "sandbox auth --token-id YOUR_TOKEN_ID --token-secret YOUR_TOKEN_SECRET",
+            },
         },
         "image_aliases": IMAGE_ALIASES,
         "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
@@ -1318,12 +1387,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_command_parser.add_argument("cmd")
     run_command_parser.add_argument("args", nargs=argparse.REMAINDER)
 
-    write_parser = subparsers.add_parser("write", help="Write a text file inside the sandbox workspace.")
+    write_parser = subparsers.add_parser("write", help="Write a file inside the sandbox workspace.")
     write_parser.add_argument("path")
     write_input = write_parser.add_mutually_exclusive_group(required=True)
-    write_input.add_argument("--content")
-    write_input.add_argument("--content-file")
-    write_input.add_argument("--stdin", action="store_true", dest="read_stdin")
+    write_input.add_argument("--content", help="Inline UTF-8 text content to write.")
+    write_input.add_argument("--content-file", help="Local UTF-8 text file to read and write.")
+    write_input.add_argument("--stdin", action="store_true", dest="read_stdin", help="Read UTF-8 text from stdin.")
+    write_input.add_argument("--binary-file", metavar="PATH", help="Local binary file to read and write as bytes.")
+    write_input.add_argument(
+        "--binary-stdin", action="store_true", dest="binary_stdin", help="Read raw bytes from stdin and write as binary."
+    )
 
     read_parser = subparsers.add_parser("read", help="Read a text file inside the sandbox workspace.")
     read_parser.add_argument("path")
@@ -1401,6 +1474,12 @@ def build_parser() -> argparse.ArgumentParser:
     seed_tarball_parser.add_argument("--dest", default=".")
     seed_tarball_parser.add_argument("--strip-components", type=_non_negative_int, default=1)
 
+    auth_parser = subparsers.add_parser("auth", help="Write Modal credentials to ~/.modal.toml for non-interactive use.")
+    auth_parser.add_argument("--token-id", required=True, dest="token_id", help="Modal token ID.")
+    auth_parser.add_argument("--token-secret", required=True, dest="token_secret", help="Modal token secret.")
+    auth_parser.add_argument("--profile", default="default", help="Modal config profile to write (default: 'default').")
+    auth_parser.add_argument("--force", action="store_true", help="Overwrite an existing profile entry.")
+
     subparsers.add_parser("dry", help="List safe discovery commands that do not create Modal resources.")
 
     subparsers.add_parser("schema", help="Print a machine-readable CLI schema.")
@@ -1417,18 +1496,208 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _write_content_from_args(args: argparse.Namespace) -> str:
+def _write_content_from_args(args: argparse.Namespace) -> str | bytes:
+    if getattr(args, "binary_stdin", False):
+        return sys.stdin.buffer.read()
+    if getattr(args, "binary_file", None):
+        return Path(args.binary_file).read_bytes()
     if args.content is not None:
         return args.content
     if args.content_file is not None:
         return Path(args.content_file).read_text(encoding="utf-8")
     if args.read_stdin:
         return sys.stdin.read()
-    raise argparse.ArgumentTypeError("write requires --content, --content-file, or --stdin")
+    raise argparse.ArgumentTypeError("write requires --content, --content-file, --stdin, --binary-file, or --binary-stdin")
 
 
 def _snapshot_ttl_from_args(args: argparse.Namespace) -> int | None:
     return None if getattr(args, "no_ttl", False) else args.ttl
+
+
+# ---------------------------------------------------------------------------
+# Per-command handler functions
+# Each receives (args, sandbox) and returns an int exit code (0 for success).
+# ---------------------------------------------------------------------------
+
+
+def _cmd_wait_ready(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.wait_until_ready(timeout=args.wait_ready_timeout)
+    payload: dict[str, object] = {
+        "sandbox_id": sandbox.sandbox_id,
+        "status": "ready",
+        "timeout": args.wait_ready_timeout,
+    }
+    if args.sandbox_name:
+        payload["sandbox_name"] = args.sandbox_name
+    _print_json(payload)
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    result = sandbox.run(args.command, cwd=args.cwd, max_output_bytes=args.max_output_bytes)
+    _print_json(result.to_dict())
+    return _command_exit_code(result) if args.use_command_exit_code else 0
+
+
+def _cmd_run_command(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    result = sandbox.run_command(
+        args.cmd,
+        args.args,
+        cwd=args.cwd,
+        env=_parse_env(args.command_env) if args.command_env else None,
+        max_output_bytes=args.max_output_bytes,
+    )
+    _print_json(result.to_dict())
+    return _command_exit_code(result) if args.use_command_exit_code else 0
+
+
+def _cmd_write(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    content = _write_content_from_args(args)
+    if isinstance(content, bytes):
+        sandbox.write_bytes(args.path, content)
+    else:
+        sandbox.write_text(args.path, content)
+    _print_json({"path": args.path, "status": "wrote"})
+    return 0
+
+
+def _cmd_read(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json({"path": args.path, "content": sandbox.read_text(args.path)})
+    return 0
+
+
+def _cmd_ls(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json({"path": args.path, "files": sandbox.list_files(args.path)})
+    return 0
+
+
+def _cmd_mkdir(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    parents = not args.no_parents
+    sandbox.mkdir(args.path, parents=parents)
+    _print_json({"parents": parents, "path": args.path, "status": "created"})
+    return 0
+
+
+def _cmd_rm(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.remove(args.path, recursive=args.recursive)
+    _print_json({"path": args.path, "recursive": args.recursive, "status": "removed"})
+    return 0
+
+
+def _cmd_upload(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.copy_from_local(args.local_path, args.remote_path)
+    _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "uploaded"})
+    return 0
+
+
+def _cmd_download(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.copy_to_local(args.remote_path, args.local_path)
+    _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "downloaded"})
+    return 0
+
+
+def _cmd_domain(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json({"port": args.port, "url": sandbox.domain(args.port)})
+    return 0
+
+
+def _cmd_snapshot(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    snapshot = sandbox.workspace_checkpoint()
+    _print_json({"kind": snapshot.kind, "name": snapshot.name, "status": "created", "workspace": snapshot.workspace})
+    return 0
+
+
+def _cmd_snapshot_filesystem(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    snapshot = sandbox.snapshot_filesystem(timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args))
+    payload = snapshot.to_dict()
+    payload["status"] = "created"
+    _print_json(payload)
+    return 0
+
+
+def _cmd_snapshot_directory(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    snapshot = sandbox.snapshot_directory(
+        args.path, timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args)
+    )
+    payload = snapshot.to_dict()
+    payload["status"] = "created"
+    _print_json(payload)
+    return 0
+
+
+def _cmd_mount_image(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.mount_image(args.path, args.image_id)
+    _print_json({"image_id": args.image_id, "path": args.path, "status": "mounted"})
+    return 0
+
+
+def _cmd_unmount_image(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    sandbox.unmount_image(args.path)
+    _print_json({"path": args.path, "status": "unmounted"})
+    return 0
+
+
+def _cmd_stat(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json(sandbox.stat(args.path).to_dict())
+    return 0
+
+
+def _cmd_watch(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    events = sandbox.watch(
+        args.path,
+        recursive=args.recursive,
+        timeout=args.watch_timeout,
+        filter=args.watch_events or None,
+    )
+    _print_json({
+        "events": [event.to_dict() for event in events],
+        "path": args.path,
+        "recursive": args.recursive,
+        "timeout": args.watch_timeout,
+    })
+    return 0
+
+
+def _cmd_sync(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json(sandbox.sync_workspace().to_dict())
+    return 0
+
+
+def _cmd_seed_git(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json(sandbox.seed_git(args.url, destination=args.dest, ref=args.ref, depth=args.depth).to_dict())
+    return 0
+
+
+def _cmd_seed_tarball(args: argparse.Namespace, sandbox: Sandbox) -> int:
+    _print_json(
+        sandbox.seed_tarball(args.url, destination=args.dest, strip_components=args.strip_components).to_dict()
+    )
+    return 0
+
+
+_COMMAND_HANDLERS: dict[str, Any] = {
+    "wait-ready": _cmd_wait_ready,
+    "run": _cmd_run,
+    "run-command": _cmd_run_command,
+    "write": _cmd_write,
+    "read": _cmd_read,
+    "ls": _cmd_ls,
+    "mkdir": _cmd_mkdir,
+    "rm": _cmd_rm,
+    "upload": _cmd_upload,
+    "download": _cmd_download,
+    "domain": _cmd_domain,
+    "snapshot": _cmd_snapshot,
+    "snapshot-filesystem": _cmd_snapshot_filesystem,
+    "snapshot-directory": _cmd_snapshot_directory,
+    "mount-image": _cmd_mount_image,
+    "unmount-image": _cmd_unmount_image,
+    "stat": _cmd_stat,
+    "watch": _cmd_watch,
+    "sync": _cmd_sync,
+    "seed-git": _cmd_seed_git,
+    "seed-tarball": _cmd_seed_tarball,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1456,17 +1725,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command_name == "dry":
         _print_json(_dry_payload())
         return 0
-
     if args.command_name == "schema":
         _print_json(_schema_payload())
         return 0
-
     if args.command_name == "doctor":
         _print_json(_doctor_payload())
         return 0
-
     if args.command_name == "quickstart" and not args.run:
         _print_json(_quickstart_payload(creates_modal_resources=False))
+        return 0
+
+    if args.command_name == "auth":
+        config_path = _modal_config_path()
+        try:
+            _write_modal_toml(config_path, args.profile, args.token_id, args.token_secret, force=args.force)
+        except ValueError as exc:
+            _exit_with_error(parser, "auth_error", str(exc), 1)
+        _print_json({"status": "configured", "profile": args.profile, "config_path": str(config_path), "creates_modal_resources": False})
         return 0
 
     sandbox: Sandbox | None = None
@@ -1529,118 +1804,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         sandbox = _sandbox_from_args(args)
-        if args.command_name == "wait-ready":
-            sandbox.wait_until_ready(timeout=args.wait_ready_timeout)
-            payload: dict[str, object] = {
-                "sandbox_id": sandbox.sandbox_id,
-                "status": "ready",
-                "timeout": args.wait_ready_timeout,
-            }
-            if args.sandbox_name:
-                payload["sandbox_name"] = args.sandbox_name
-            _print_json(payload)
-            return 0
-        if args.wait_ready:
+        if args.command_name != "wait-ready" and args.wait_ready:
             sandbox.wait_until_ready(timeout=args.ready_timeout)
-        # Each command creates or attaches to a sandbox, performs one operation,
-        # and closes it. Richer lifecycle management can layer on later.
-        if args.command_name == "run":
-            result = sandbox.run(args.command, cwd=args.cwd, max_output_bytes=args.max_output_bytes)
-            _print_json(result.to_dict())
-            if args.use_command_exit_code:
-                return _command_exit_code(result)
-        elif args.command_name == "run-command":
-            result = sandbox.run_command(
-                args.cmd,
-                args.args,
-                cwd=args.cwd,
-                env=_parse_env(args.command_env) if args.command_env else None,
-                max_output_bytes=args.max_output_bytes,
-            )
-            _print_json(result.to_dict())
-            if args.use_command_exit_code:
-                return _command_exit_code(result)
-        elif args.command_name == "write":
-            sandbox.write_text(args.path, _write_content_from_args(args))
-            _print_json({"path": args.path, "status": "wrote"})
-        elif args.command_name == "read":
-            _print_json({"path": args.path, "content": sandbox.read_text(args.path)})
-        elif args.command_name == "ls":
-            _print_json({"path": args.path, "files": sandbox.list_files(args.path)})
-        elif args.command_name == "mkdir":
-            parents = not args.no_parents
-            sandbox.mkdir(args.path, parents=parents)
-            _print_json({"parents": parents, "path": args.path, "status": "created"})
-        elif args.command_name == "rm":
-            sandbox.remove(args.path, recursive=args.recursive)
-            _print_json({"path": args.path, "recursive": args.recursive, "status": "removed"})
-        elif args.command_name == "upload":
-            sandbox.copy_from_local(args.local_path, args.remote_path)
-            _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "uploaded"})
-        elif args.command_name == "download":
-            sandbox.copy_to_local(args.remote_path, args.local_path)
-            _print_json({"local_path": args.local_path, "remote_path": args.remote_path, "status": "downloaded"})
-        elif args.command_name == "domain":
-            _print_json({"port": args.port, "url": sandbox.domain(args.port)})
-        elif args.command_name == "snapshot":
-            snapshot = sandbox.workspace_checkpoint()
-            _print_json(
-                {
-                    "kind": snapshot.kind,
-                    "name": snapshot.name,
-                    "status": "created",
-                    "workspace": snapshot.workspace,
-                }
-            )
-        elif args.command_name == "snapshot-filesystem":
-            snapshot = sandbox.snapshot_filesystem(timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args))
-            payload = snapshot.to_dict()
-            payload["status"] = "created"
-            _print_json(payload)
-        elif args.command_name == "snapshot-directory":
-            snapshot = sandbox.snapshot_directory(
-                args.path, timeout=args.snapshot_timeout, ttl=_snapshot_ttl_from_args(args)
-            )
-            payload = snapshot.to_dict()
-            payload["status"] = "created"
-            _print_json(payload)
-        elif args.command_name == "mount-image":
-            sandbox.mount_image(args.path, args.image_id)
-            _print_json({"image_id": args.image_id, "path": args.path, "status": "mounted"})
-        elif args.command_name == "unmount-image":
-            sandbox.unmount_image(args.path)
-            _print_json({"path": args.path, "status": "unmounted"})
-        elif args.command_name == "stat":
-            _print_json(sandbox.stat(args.path).to_dict())
-        elif args.command_name == "watch":
-            events = sandbox.watch(
-                args.path,
-                recursive=args.recursive,
-                timeout=args.watch_timeout,
-                filter=args.watch_events or None,
-            )
-            _print_json(
-                {
-                    "events": [event.to_dict() for event in events],
-                    "path": args.path,
-                    "recursive": args.recursive,
-                    "timeout": args.watch_timeout,
-                }
-            )
-        elif args.command_name == "sync":
-            _print_json(sandbox.sync_workspace().to_dict())
-        elif args.command_name == "seed-git":
-            _print_json(sandbox.seed_git(args.url, destination=args.dest, ref=args.ref, depth=args.depth).to_dict())
-        elif args.command_name == "seed-tarball":
-            _print_json(
-                sandbox.seed_tarball(
-                    args.url,
-                    destination=args.dest,
-                    strip_components=args.strip_components,
-                ).to_dict()
-            )
-        else:
+
+        handler = _COMMAND_HANDLERS.get(args.command_name)
+        if handler is None:
             parser.error(f"Unknown command: {args.command_name}")
+        return handler(args, sandbox)
+
     except argparse.ArgumentTypeError as exc:
         _exit_with_error(parser, "argument_error", str(exc), 2)
     except ModalAuthenticationError as exc:

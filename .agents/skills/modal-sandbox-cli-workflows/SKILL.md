@@ -45,9 +45,31 @@ uv run sandbox --sandbox-id <sandbox_id> run "python --version"
 uv run sandbox stop <sandbox_id>
 ```
 
+## Auth
+
+Run `sandbox doctor` before any live command and check `credentials.authenticated`:
+
+| `credentials.status` | `authenticated` | Action |
+|---|---|---|
+| `configured_from_environment` | `true` | Proceed |
+| `configured_from_modal_toml` | `true` | Proceed |
+| `partial_environment` | `false` | Stop — both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` must be set |
+| `missing_or_unknown` | `false` | Stop — report credential gap to user |
+
+If `authenticated` is `false`, do not attempt live commands. The non-interactive
+fix (when you have token values) is:
+
+```bash
+sandbox auth --token-id YOUR_TOKEN_ID --token-secret YOUR_TOKEN_SECRET
+```
+
+Obtain tokens from https://modal.com/settings/tokens. For interactive
+environments, `uv run modal setup` handles the full flow.
+
 ## Guardrails
 
 - Do not run live Modal commands unless the user asked for live execution.
+- Check `credentials.authenticated` from `sandbox doctor` before any live command.
 - Use `--workspace-volume` when separate one-shot commands need shared files.
 - Use `start` plus `--sandbox-id` when operations should share one running sandbox.
 - `snapshot` requires `--workspace-volume`; without it, expect a JSON runtime error.
