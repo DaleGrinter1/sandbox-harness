@@ -11,14 +11,18 @@ from sandbox import (
     SandboxCommand,
     SandboxConfig,
     SandboxConfigurationError,
+    SandboxConflictError,
     SandboxError,
     SandboxFile,
     SandboxFileStat,
+    SandboxFilesystemError,
     SandboxImageSnapshot,
     SandboxNotFoundError,
+    SandboxPermissionError,
     SandboxProviderError,
     SandboxReadinessProbe,
     SandboxSnapshot,
+    SandboxTimeoutError,
     SandboxVolume,
     SandboxWatchEvent,
 )
@@ -934,3 +938,8 @@ def test_public_exception_hierarchy() -> None:
     assert issubclass(SandboxProviderError, SandboxError)
     assert issubclass(SandboxConfigurationError, SandboxError)
     assert issubclass(SandboxConfigurationError, ValueError)
+    assert issubclass(SandboxConflictError, SandboxProviderError)
+    assert issubclass(SandboxFilesystemError, SandboxProviderError)
+    assert issubclass(SandboxNotFoundError, SandboxProviderError)
+    assert issubclass(SandboxPermissionError, SandboxProviderError)
+    assert issubclass(SandboxTimeoutError, SandboxProviderError)

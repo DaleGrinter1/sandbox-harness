@@ -1,0 +1,59 @@
+{
+  "initiative": "assessment-remediation",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "exec-plan-state",
+      "title": "Create durable assessment remediation execution-plan state",
+      "description": "Durable execution-plan state exists and validates.",
+      "priority": 1,
+      "evidence": [
+        "docs/exec-plans/active/assessment-remediation/PLAN_assessment-remediation.md",
+        "docs/exec-plans/active/assessment-remediation/state/feature-list.json",
+        "./scripts/execplan/check.sh passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "hooks-release-readiness",
+      "title": "Harden hooks and release readiness",
+      "description": "Hooks and release checks cover formatting, typing, tests, package build, and metadata validation.",
+      "priority": 2,
+      "evidence": [
+        ".pre-commit-config.yaml adds pre-push and manual release hooks",
+        "scripts/dev/release-check.sh builds, checks, installs, imports, and runs sandbox schema",
+        ".github/workflows/publish.yml and .github/workflows/testpypi.yml use trusted publishing",
+        "./scripts/dev/release-check.sh passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "exception-and-large-file-cleanup",
+      "title": "Clarify exceptions and lower SDK large-file load",
+      "description": "SDK/provider internals have clearer exception translation and lower large-file cognitive load without public API breaks.",
+      "priority": 3,
+      "evidence": [
+        "packages/sandbox/_validation.py extracts SDK validation helpers",
+        "packages/sandbox/_modal_errors.py centralizes Modal provider error translation",
+        "packages/sandbox/sandbox.py reduced to 862 lines",
+        "uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_packaging.py passed",
+        "./scripts/dev/check.sh passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "agent-and-doc-updates",
+      "title": "Document agent lanes and cognitive-load guidance",
+      "description": "Agent handoff, cognitive-load, and release docs reflect the new workflow.",
+      "priority": 4,
+      "evidence": [
+        "docs/design-docs/cognitive-load.md added",
+        "docs/references/agents.md documents subagent lanes",
+        "docs/references/development.md and CONTRIBUTING.md document hooks and release checks",
+        "uv run ruff check . passed",
+        "./scripts/dev/check.sh passed"
+      ],
+      "passes": true
+    }
+  ]
+}

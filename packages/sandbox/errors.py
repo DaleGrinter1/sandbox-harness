@@ -19,5 +19,21 @@ class SandboxNotFoundError(SandboxProviderError):
     """Raised when a requested running sandbox cannot be found."""
 
 
+class SandboxTimeoutError(SandboxProviderError):
+    """Raised when a provider operation times out before completing."""
+
+
+class SandboxPermissionError(SandboxProviderError):
+    """Raised when a provider operation is denied by permissions or policy."""
+
+
+class SandboxFilesystemError(SandboxProviderError):
+    """Raised when provider-backed sandbox filesystem operations fail."""
+
+
+class SandboxConflictError(SandboxProviderError):
+    """Raised when provider state conflicts with the requested operation."""
+
+
 class SandboxConfigurationError(SandboxError, ValueError):
     """Raised when sandbox options are invalid or internally inconsistent."""

@@ -5,7 +5,13 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from sandbox.errors import ModalAuthenticationError, SandboxNotFoundError, SandboxProviderError
+from sandbox.errors import (
+    ModalAuthenticationError,
+    SandboxFilesystemError,
+    SandboxNotFoundError,
+    SandboxProviderError,
+    SandboxTimeoutError,
+)
 from sandbox.provider_modal import ModalSandboxProvider, sandbox_path, sandbox_workdir
 from sandbox.types import SandboxConfig, SandboxReadinessProbe
 from sandbox.volumes import SandboxVolume
@@ -827,8 +833,21 @@ def test_filesystem_errors_include_sandbox_path_context(monkeypatch) -> None:
 
     provider._sandbox.filesystem.read_text = fail_read_text
 
-    with pytest.raises(SandboxProviderError, match="reading text from /workspace/missing.txt: missing file"):
+    with pytest.raises(SandboxFilesystemError, match="reading text from /workspace/missing.txt: missing file"):
         provider.read_text("missing.txt")
+
+
+def test_provider_timeouts_use_timeout_error_subclass(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider.create(SandboxConfig())
+
+    def fail_read_text(remote_path: str) -> str:
+        raise TimeoutError(f"timed out reading {remote_path}")
+
+    provider._sandbox.filesystem.read_text = fail_read_text
+
+    with pytest.raises(SandboxTimeoutError, match="reading text from /workspace/slow.txt: timed out"):
+        provider.read_text("slow.txt")
 
 
 def test_filesystem_helpers_use_workspace_paths(monkeypatch) -> None:

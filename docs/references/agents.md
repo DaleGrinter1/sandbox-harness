@@ -90,3 +90,22 @@ Useful references:
 - Context7 docs: <https://context7.com/docs>
 - OpenAI developer docs: <https://developers.openai.com/>
 - Chrome DevTools MCP: <https://github.com/ChromeDevTools/chrome-devtools-mcp>
+
+## Subagent Lanes
+
+Use repo-local skills as lightweight subagent lanes. They are development
+workflow guidance, not runtime package dependencies.
+
+- `modal-sandbox-repo-understanding`: first-pass orientation, architecture,
+  planning state, and safe discovery.
+- `modal-sandbox-package-maintenance`: SDK, provider, CLI, packaging, tests,
+  and release-facing changes.
+- `modal-sandbox-cli-workflows`: CLI schema, dry commands, and live Modal
+  workflow choices.
+- `modal-sandbox-understanding-check`: coaching, quizzes, and architecture
+  comprehension checks.
+
+For broad work, one agent should own the active exec-plan feature while helper
+agents read the same plan and report back with focused findings. Do not create
+new agent config files unless a human explicitly asks for runnable agent
+automation.

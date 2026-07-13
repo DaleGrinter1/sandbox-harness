@@ -21,6 +21,18 @@ Before cutting a release, run the full local contract:
 ./scripts/dev/check.sh
 ```
 
+Install local hooks when working on release-facing changes:
+
+```bash
+uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+Run the manual release hook directly when checking package artifacts:
+
+```bash
+uv run pre-commit run release-check --hook-stage manual
+```
+
 When CLI schema metadata changes, regenerate and review
 `docs/generated/cli-schema.json`; the default test suite compares it to the
 runtime schema.
@@ -32,10 +44,13 @@ runtime schema.
 Then check the built package metadata and install path:
 
 ```bash
-uv run python -m pip install --force-reinstall dist/*.whl
-uv run python -c "from sandbox import Sandbox, SandboxImageSnapshot, SandboxVolume; from sandbox.volumes import SandboxVolume as V; assert SandboxVolume is V; assert SandboxImageSnapshot"
-uv run sandbox schema
+./scripts/dev/release-check.sh
 ```
+
+PyPI publishing uses GitHub trusted publishing. The `Publish` workflow runs
+when a GitHub Release is published and expects a protected `pypi` environment
+configured in the repository settings. The manual `TestPyPI` workflow expects a
+matching `testpypi` environment.
 
 Live Modal tests are opt-in:
 

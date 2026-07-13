@@ -392,6 +392,7 @@ Small examples live in `examples/`:
 
 - [CLI workflows](docs/references/cli.md)
 - [New agent starter prompt](docs/references/new-agent-prompt.md)
+- [Cognitive-load design note](docs/design-docs/cognitive-load.md)
 - [Vercel-style SDK compatibility](docs/design-docs/vercel-style-sdk-compatibility.md)
 - [Collaborator onboarding](docs/references/collaborator-onboarding.md)
 - [Modal setup](docs/references/modal-setup.md)

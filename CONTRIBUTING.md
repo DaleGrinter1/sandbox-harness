@@ -13,6 +13,12 @@ Install dependencies:
 uv sync
 ```
 
+Install hooks:
+
+```bash
+uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
 Run the default non-live validation suite:
 
 ```bash
@@ -76,7 +82,7 @@ Use your normal local Modal authentication setup for live commands.
 3. Run `./scripts/dev/check.sh`.
 4. Run live Modal tests if the change touches provider behavior.
 5. Confirm generated contracts such as `docs/generated/cli-schema.json` are current.
-6. Build with `uv build`.
-7. Install the wheel in a clean environment and verify `sandbox schema`.
+6. Run `./scripts/dev/release-check.sh`.
+7. Confirm GitHub trusted publishing environments are configured for `pypi` and, when needed, `testpypi`.
 8. Confirm `sandbox/py.typed`, focused modules, and public imports are present.
 9. Tag the release after the package artifact has been checked.

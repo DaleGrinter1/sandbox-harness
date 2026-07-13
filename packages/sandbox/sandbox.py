@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Callable, Mapping, Sequence
-from ipaddress import ip_address, ip_network
-from urllib.parse import urlparse
 
+from ._validation import (
+    coerce_sandbox_file,
+    normalize_cidr_allowlist,
+    normalize_domain_allowlist,
+    normalize_sandbox_name,
+    normalize_tags,
+    normalize_volumes,
+    resolve_runtime_image,
+    validate_network_policy,
+    validate_public_http_url,
+    validate_volume_mounts,
+)
 from .commands import CommandResult, SandboxCommand
 from .errors import SandboxConfigurationError, SandboxProviderError
 from .files import SandboxFile
@@ -25,12 +34,6 @@ from .types import (
 )
 from .volumes import SandboxVolume
 
-RUNTIME_IMAGES = {
-    "python3.13": "python:3.13-slim",
-    "node24": "node:24-slim",
-    "node22": "node:22-slim",
-}
-SANDBOX_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
 DEFAULT_IMAGE_SNAPSHOT_TTL = 30 * 24 * 3600
 
 _TARBALL_SEED_REMOTE_PATH = "/tmp/_sandbox_seed_tarball.py"
@@ -158,15 +161,15 @@ class Sandbox:
         Returns:
             A `Sandbox` connected to the created or attached Modal sandbox.
         """
-        resolved_image = _resolve_runtime_image(runtime, image)
-        normalized_name = _normalize_sandbox_name(name)
-        normalized_tags = _normalize_tags(tags)
-        normalized_volumes = _normalize_volumes(volumes)
-        normalized_domain_allowlist = _normalize_domain_allowlist(outbound_domain_allowlist)
-        normalized_outbound_cidrs = _normalize_cidr_allowlist(outbound_cidr_allowlist, "outbound_cidr_allowlist")
-        normalized_inbound_cidrs = _normalize_cidr_allowlist(inbound_cidr_allowlist, "inbound_cidr_allowlist")
-        _validate_volume_mounts(normalized_volumes)
-        _validate_network_policy(
+        resolved_image = resolve_runtime_image(runtime, image)
+        normalized_name = normalize_sandbox_name(name)
+        normalized_tags = normalize_tags(tags)
+        normalized_volumes = normalize_volumes(volumes)
+        normalized_domain_allowlist = normalize_domain_allowlist(outbound_domain_allowlist)
+        normalized_outbound_cidrs = normalize_cidr_allowlist(outbound_cidr_allowlist, "outbound_cidr_allowlist")
+        normalized_inbound_cidrs = normalize_cidr_allowlist(inbound_cidr_allowlist, "inbound_cidr_allowlist")
+        validate_volume_mounts(normalized_volumes)
+        validate_network_policy(
             block_network=block_network,
             outbound_domain_allowlist=normalized_domain_allowlist,
             outbound_cidr_allowlist=normalized_outbound_cidrs,
@@ -242,7 +245,7 @@ class Sandbox:
         config = SandboxConfig(
             app_name=app_name,
             workspace=workspace,
-            volumes=_normalize_volumes(volumes),
+            volumes=normalize_volumes(volumes),
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
@@ -282,14 +285,14 @@ class Sandbox:
         Returns:
             A `Sandbox` connected to the running named Modal sandbox.
         """
-        normalized_name = _normalize_sandbox_name(name)
+        normalized_name = normalize_sandbox_name(name)
         if normalized_name is None:
             raise SandboxConfigurationError("sandbox name must not be empty.")
         config = SandboxConfig(
             app_name=app_name,
             name=normalized_name,
             workspace=workspace,
-            volumes=_normalize_volumes(volumes),
+            volumes=normalize_volumes(volumes),
             command_timeout=command_timeout,
             sandbox_timeout=sandbox_timeout,
             workdir=workdir,
@@ -339,7 +342,7 @@ class Sandbox:
         """
         from .errors import SandboxNotFoundError, SandboxProviderError
 
-        normalized_name = _normalize_sandbox_name(name)
+        normalized_name = normalize_sandbox_name(name)
         if normalized_name is None:
             raise SandboxConfigurationError("sandbox name must not be empty.")
 
@@ -672,7 +675,7 @@ class Sandbox:
         """
         chmod_by_mode: dict[int, list[str]] = {}
         for file in files:
-            sandbox_file = _coerce_sandbox_file(file)
+            sandbox_file = coerce_sandbox_file(file)
             if isinstance(sandbox_file.content, bytes):
                 self.write_bytes(sandbox_file.path, sandbox_file.content)
             else:
@@ -706,7 +709,7 @@ class Sandbox:
             Command result from the `git clone` invocation.
         """
         repo_url = repo_url.strip()
-        _validate_public_http_url(repo_url)
+        validate_public_http_url(repo_url)
         if depth < 0:
             raise SandboxConfigurationError("seed_git depth must be non-negative.")
         target = sandbox_path(destination, self.config.workspace)
@@ -737,7 +740,7 @@ class Sandbox:
             Command result from the extraction command.
         """
         tarball_url = tarball_url.strip()
-        _validate_public_http_url(tarball_url)
+        validate_public_http_url(tarball_url)
         if strip_components < 0:
             raise SandboxConfigurationError("strip_components must be non-negative.")
         target = sandbox_path(destination, self.config.workspace)
@@ -857,352 +860,3 @@ class Sandbox:
             tb: Traceback raised inside the context, if any.
         """
         self.close()
-
-
-def _resolve_runtime_image(runtime: RuntimeSpec, image: ImageSpec) -> ImageSpec:
-    """Resolve a runtime alias into a registry image.
-
-    Args:
-        runtime: Vercel-style runtime alias.
-        image: Explicit registry image or Modal image object.
-
-    Returns:
-        Resolved image input for `SandboxConfig`.
-
-    Raises:
-        SandboxConfigurationError: If both `runtime` and `image` are provided,
-            or if the runtime alias is unsupported.
-    """
-    if runtime is None:
-        return image
-    if image is not None:
-        raise SandboxConfigurationError("Pass either runtime or image, not both.")
-    try:
-        return RUNTIME_IMAGES[runtime]
-    except KeyError as exc:
-        supported = ", ".join(sorted(RUNTIME_IMAGES))
-        raise SandboxConfigurationError(f"Unsupported runtime {runtime!r}. Supported runtimes: {supported}.") from exc
-
-
-def _normalize_sandbox_name(name: str | None) -> str | None:
-    """Normalize an optional Modal sandbox name.
-
-    Args:
-        name: Optional sandbox name.
-
-    Returns:
-        Stripped sandbox name, or `None`.
-
-    Raises:
-        TypeError: If the name is not a string.
-        SandboxConfigurationError: If the name violates Modal's documented
-            syntax.
-    """
-    if name is None:
-        return None
-    if not isinstance(name, str):
-        raise TypeError("sandbox name must be a string.")
-    value = name.strip()
-    if not value:
-        raise SandboxConfigurationError("sandbox name must not be empty.")
-    if not SANDBOX_NAME_RE.fullmatch(value):
-        raise SandboxConfigurationError(
-            "sandbox name must be shorter than 64 characters and contain only letters, numbers, dashes, periods, and underscores."
-        )
-    return value
-
-
-def _normalize_tags(tags: Mapping[str, str] | None) -> dict[str, str] | None:
-    """Normalize optional Modal sandbox tags.
-
-    Args:
-        tags: Optional tag mapping.
-
-    Returns:
-        Plain dictionary of tags, or `None`.
-
-    Raises:
-        TypeError: If tag keys or values are not strings.
-        SandboxConfigurationError: If a tag key is empty.
-    """
-    if tags is None:
-        return None
-
-    normalized: dict[str, str] = {}
-    for key, value in tags.items():
-        if not isinstance(key, str):
-            raise TypeError("sandbox tag keys must be strings.")
-        if not isinstance(value, str):
-            raise TypeError("sandbox tag values must be strings.")
-        normalized_key = key.strip()
-        if not normalized_key:
-            raise SandboxConfigurationError("sandbox tag keys must not be empty.")
-        normalized[normalized_key] = value
-    return normalized
-
-
-def _coerce_sandbox_file(file: SandboxFile | Mapping[str, object]) -> SandboxFile:
-    """Normalize bulk file input into a `SandboxFile`.
-
-    Args:
-        file: Existing `SandboxFile`, or mapping with `path` and `content`.
-
-    Returns:
-        Normalized `SandboxFile`.
-
-    Raises:
-        TypeError: If the mapping shape is invalid.
-    """
-    if isinstance(file, SandboxFile):
-        _validate_file_mode(file.mode)
-        return file
-    path = file.get("path")
-    content = file.get("content")
-    mode = _coerce_file_mode(file.get("mode"))
-    if not isinstance(path, str):
-        raise TypeError("Sandbox file mappings must include a string 'path'.")
-    if not isinstance(content, (str, bytes)):
-        raise TypeError("Sandbox file mappings must include string or bytes 'content'.")
-    return SandboxFile(path=path, content=content, mode=mode)
-
-
-def _coerce_file_mode(mode: object) -> int | None:
-    """Normalize an optional mapping file mode.
-
-    Args:
-        mode: Optional mode value from a mapping.
-
-    Returns:
-        Integer mode, or `None`.
-
-    Raises:
-        TypeError: If the mode is not an integer.
-        SandboxConfigurationError: If the mode is outside the POSIX range.
-    """
-    if mode is None:
-        return None
-    if not isinstance(mode, int) or isinstance(mode, bool):
-        raise TypeError("Sandbox file mode must be an integer.")
-    _validate_file_mode(mode)
-    return mode
-
-
-def _validate_file_mode(mode: int | None) -> None:
-    """Validate an optional POSIX file mode.
-
-    Args:
-        mode: Optional integer mode.
-
-    Raises:
-        TypeError: If the mode is not an integer.
-        SandboxConfigurationError: If the mode is outside the POSIX range.
-    """
-    if mode is None:
-        return
-    if not isinstance(mode, int) or isinstance(mode, bool):
-        raise TypeError("Sandbox file mode must be an integer.")
-    if mode < 0 or mode > 0o7777:
-        raise SandboxConfigurationError("Sandbox file mode must be between 0o0000 and 0o7777.")
-
-
-def _normalize_volumes(volumes: Sequence[SandboxVolume] | None) -> tuple[SandboxVolume, ...]:
-    """Normalize optional volume input into an immutable tuple.
-
-    Args:
-        volumes: Optional sequence of `SandboxVolume` declarations.
-
-    Returns:
-        Tuple of volume declarations.
-
-    Raises:
-        TypeError: If any item is not a `SandboxVolume`.
-    """
-    if volumes is None:
-        return ()
-    normalized = tuple(volumes)
-    for volume in normalized:
-        if not isinstance(volume, SandboxVolume):
-            raise TypeError("volumes must contain SandboxVolume instances.")
-    return normalized
-
-
-def _normalize_domain_allowlist(domains: Sequence[str] | None) -> tuple[str, ...]:
-    """Normalize optional outbound domain allowlist values.
-
-    Args:
-        domains: Optional sequence of domain names.
-
-    Returns:
-        Tuple of stripped domain names.
-
-    Raises:
-        TypeError: If any item is not a string.
-        SandboxConfigurationError: If any item is empty.
-    """
-    if domains is None:
-        return ()
-    normalized: list[str] = []
-    for domain in domains:
-        if not isinstance(domain, str):
-            raise TypeError("outbound_domain_allowlist must contain strings.")
-        value = domain.strip()
-        if not value:
-            raise SandboxConfigurationError("outbound_domain_allowlist values must not be empty.")
-        normalized.append(_validate_domain_allowlist_value(value))
-    return tuple(normalized)
-
-
-def _validate_domain_allowlist_value(value: str) -> str:
-    """Validate one Modal outbound domain allowlist entry.
-
-    Args:
-        value: Stripped allowlist entry.
-
-    Returns:
-        The validated value.
-
-    Raises:
-        SandboxConfigurationError: If the value is not a hostname-style domain.
-    """
-    if any(character.isspace() for character in value):
-        raise SandboxConfigurationError("outbound_domain_allowlist values must not contain whitespace.")
-    if any(fragment in value for fragment in ("://", "/", "\\", ":", "@")):
-        raise SandboxConfigurationError("outbound_domain_allowlist values must be hostnames, not URLs.")
-
-    wildcard = value.startswith("*.")
-    hostname = value[2:] if wildcard else value
-    if not hostname or len(hostname) > 253:
-        raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
-    if hostname.startswith(".") or hostname.endswith(".") or ".." in hostname:
-        raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
-
-    try:
-        ip_address(hostname)
-    except ValueError:
-        pass
-    else:
-        raise SandboxConfigurationError(
-            "outbound_domain_allowlist values must be domain names; use outbound_cidr_allowlist for IP ranges."
-        )
-
-    for label in hostname.split("."):
-        if not label or len(label) > 63:
-            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
-        if label.startswith("-") or label.endswith("-"):
-            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
-        if not all(character.isalnum() or character == "-" for character in label):
-            raise SandboxConfigurationError("outbound_domain_allowlist values must be valid hostnames.")
-
-    return value
-
-
-def _validate_cidr_value(value: str, field_name: str) -> str:
-    """Validate a single CIDR allowlist entry.
-
-    Args:
-        value: Already-stripped CIDR string.
-        field_name: Public field name used in error messages.
-
-    Returns:
-        The validated CIDR string.
-
-    Raises:
-        SandboxConfigurationError: If the value is not a valid CIDR range.
-    """
-    if "/" not in value:
-        raise SandboxConfigurationError(f"{field_name} values must be CIDR ranges.")
-    try:
-        ip_network(value, strict=False)
-    except ValueError as exc:
-        raise SandboxConfigurationError(f"{field_name} values must be valid CIDR ranges.") from exc
-    return value
-
-
-def _normalize_cidr_allowlist(cidrs: Sequence[str] | None, field_name: str) -> tuple[str, ...]:
-    """Normalize optional CIDR allowlist values.
-
-    Args:
-        cidrs: Optional sequence of CIDR strings.
-        field_name: Public field name used in error messages.
-
-    Returns:
-        Tuple of stripped CIDR strings.
-
-    Raises:
-        TypeError: If any item is not a string.
-        SandboxConfigurationError: If any item is empty or invalid.
-    """
-    if cidrs is None:
-        return ()
-
-    normalized: list[str] = []
-    for cidr in cidrs:
-        if not isinstance(cidr, str):
-            raise TypeError(f"{field_name} must contain strings.")
-        value = cidr.strip()
-        if not value:
-            raise SandboxConfigurationError(f"{field_name} values must not be empty.")
-        normalized.append(_validate_cidr_value(value, field_name))
-    return tuple(normalized)
-
-
-def _validate_network_policy(
-    *,
-    block_network: bool,
-    outbound_domain_allowlist: Sequence[str],
-    outbound_cidr_allowlist: Sequence[str],
-    inbound_cidr_allowlist: Sequence[str],
-) -> None:
-    """Validate Modal network policy combinations.
-
-    Args:
-        block_network: Whether all outbound network access is blocked.
-        outbound_domain_allowlist: Domain allowlist entries.
-        outbound_cidr_allowlist: Outbound CIDR allowlist entries.
-        inbound_cidr_allowlist: Inbound CIDR allowlist entries.
-
-    Raises:
-        SandboxConfigurationError: If `block_network` is combined with an
-            allowlist that Modal rejects.
-    """
-    if block_network and (outbound_domain_allowlist or outbound_cidr_allowlist or inbound_cidr_allowlist):
-        raise SandboxConfigurationError(
-            "block_network cannot be combined with outbound_domain_allowlist, "
-            "outbound_cidr_allowlist, or inbound_cidr_allowlist."
-        )
-
-
-def _validate_public_http_url(value: str) -> None:
-    """Validate that a source URL is public HTTP(S) without embedded credentials."""
-    if not isinstance(value, str):
-        raise TypeError("source URL must be a string.")
-    parsed = urlparse(value.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise SandboxConfigurationError("source URL must be an HTTP(S) URL.")
-    if parsed.username or parsed.password:
-        raise SandboxConfigurationError("source URL must not include embedded credentials.")
-
-
-def _validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:
-    """Validate volume mount paths before passing them to Modal.
-
-    Args:
-        volumes: Volume declarations to validate.
-
-    Raises:
-        SandboxConfigurationError: If a mount path is not absolute or if two
-            volumes target the same normalized mount path.
-    """
-    seen: set[str] = set()
-
-    def add_mount(mount_path: str) -> None:
-        """Track one normalized mount path and reject duplicates."""
-        normalized = mount_path.rstrip("/") or "/"
-        if normalized in seen:
-            raise SandboxConfigurationError(f"Duplicate sandbox volume mount path: {normalized}")
-        seen.add(normalized)
-
-    for volume in volumes:
-        if not volume.mount_path.startswith("/"):
-            raise SandboxConfigurationError("Sandbox volume mount_path must be an absolute sandbox path.")
-        add_mount(volume.mount_path)

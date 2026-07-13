@@ -4,9 +4,13 @@ from .commands import CommandResult, SandboxCommand
 from .errors import (
     ModalAuthenticationError,
     SandboxConfigurationError,
+    SandboxConflictError,
     SandboxError,
+    SandboxFilesystemError,
     SandboxNotFoundError,
+    SandboxPermissionError,
     SandboxProviderError,
+    SandboxTimeoutError,
 )
 from .files import SandboxFile
 from .images import Images
@@ -31,16 +35,20 @@ __all__ = [
     "RuntimeSpec",
     "Sandbox",
     "SandboxCommand",
+    "SandboxConflictError",
     "SandboxConfigurationError",
     "SandboxConfig",
     "SandboxError",
     "SandboxFile",
     "SandboxFileStat",
+    "SandboxFilesystemError",
     "SandboxImageSnapshot",
     "SandboxReadinessProbe",
     "SandboxNotFoundError",
+    "SandboxPermissionError",
     "SandboxProviderError",
     "SandboxSnapshot",
+    "SandboxTimeoutError",
     "SandboxVolume",
     "SandboxWatchEvent",
 ]

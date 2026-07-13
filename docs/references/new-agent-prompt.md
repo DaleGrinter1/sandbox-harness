@@ -60,6 +60,10 @@ For implementation:
 - Do not add Modal token values, token placeholders, or secrets.
 - Do not add token-taking source flags; private source guidance should use
   Modal secrets, custom images, or user-provided setup commands.
+- For broad work, use repo-local skills as subagent lanes: repo understanding,
+  package maintenance, CLI workflows, and understanding checks.
+- Reduce cognitive load by extracting coherent helper concerns, not by creating
+  many shallow files.
 ```
 
 ## Dry Commands

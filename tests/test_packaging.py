@@ -49,26 +49,34 @@ def test_public_imports_are_available() -> None:
     assert hasattr(sdk, "ReadinessProbeSpec")
     assert hasattr(sdk, "RuntimeSpec")
     assert hasattr(sdk, "SandboxCommand")
+    assert hasattr(sdk, "SandboxConflictError")
     assert hasattr(sdk, "SandboxConfigurationError")
     assert hasattr(sdk, "SandboxConfig")
     assert hasattr(sdk, "SandboxError")
     assert hasattr(sdk, "SandboxFile")
     assert hasattr(sdk, "SandboxFileStat")
+    assert hasattr(sdk, "SandboxFilesystemError")
     assert hasattr(sdk, "SandboxImageSnapshot")
     assert hasattr(sdk, "SandboxReadinessProbe")
     assert hasattr(sdk, "SandboxNotFoundError")
+    assert hasattr(sdk, "SandboxPermissionError")
     assert hasattr(sdk, "SandboxProviderError")
     assert hasattr(sdk, "SandboxSnapshot")
+    assert hasattr(sdk, "SandboxTimeoutError")
     assert hasattr(sdk, "SandboxVolume")
     assert hasattr(sdk, "SandboxWatchEvent")
     assert hasattr(sdk, "Images")
     assert sdk.CommandResult is commands.CommandResult
     assert sdk.SandboxCommand is commands.SandboxCommand
     assert sdk.ModalAuthenticationError is errors.ModalAuthenticationError
+    assert sdk.SandboxConflictError is errors.SandboxConflictError
     assert sdk.SandboxConfigurationError is errors.SandboxConfigurationError
     assert sdk.SandboxError is errors.SandboxError
+    assert sdk.SandboxFilesystemError is errors.SandboxFilesystemError
     assert sdk.SandboxNotFoundError is errors.SandboxNotFoundError
+    assert sdk.SandboxPermissionError is errors.SandboxPermissionError
     assert sdk.SandboxProviderError is errors.SandboxProviderError
+    assert sdk.SandboxTimeoutError is errors.SandboxTimeoutError
     assert sdk.SandboxFile is files.SandboxFile
     assert sdk.SandboxFileStat.__name__ == "SandboxFileStat"
     assert sdk.SandboxImageSnapshot.__name__ == "SandboxImageSnapshot"
@@ -96,6 +104,21 @@ def test_image_presets_are_registry_tags() -> None:
 
 def test_python_version_file_pins_local_development_runtime() -> None:
     assert Path(".python-version").read_text(encoding="utf-8").strip() == "3.13"
+
+
+def test_release_readiness_files_are_present() -> None:
+    pre_commit = Path(".pre-commit-config.yaml").read_text(encoding="utf-8")
+    release_check = Path("scripts/dev/release-check.sh").read_text(encoding="utf-8")
+    publish_workflow = Path(".github/workflows/publish.yml").read_text(encoding="utf-8")
+    testpypi_workflow = Path(".github/workflows/testpypi.yml").read_text(encoding="utf-8")
+
+    assert "stages: [pre-push]" in pre_commit
+    assert "id: release-check" in pre_commit
+    assert "uv build" in release_check
+    assert "twine check dist/*" in release_check
+    assert "id-token: write" in publish_workflow
+    assert "pypa/gh-action-pypi-publish@release/v1" in publish_workflow
+    assert "repository-url: https://test.pypi.org/legacy/" in testpypi_workflow
 
 
 def test_package_marks_inline_types() -> None:

@@ -9,10 +9,16 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from importlib import import_module
 from pathlib import Path, PurePosixPath
-from typing import Any, NoReturn, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
+from ._modal_errors import (
+    is_modal_not_found_error,
+    is_transient_error,
+    raise_provider_error,
+    translate_modal_auth_error,
+)
 from .commands import CommandResult, SandboxCommand
-from .errors import ModalAuthenticationError, SandboxConfigurationError, SandboxNotFoundError, SandboxProviderError
+from .errors import SandboxConfigurationError, SandboxNotFoundError, SandboxProviderError
 from .types import (
     ImageSpec,
     SandboxConfig,
@@ -25,27 +31,6 @@ from .types import (
 from .volumes import SandboxVolume, VolumeSpec
 
 T = TypeVar("T")
-
-_TRANSIENT_ERROR_KEYWORDS = frozenset(
-    ["connection", "timeout", "network", "unavailable", "retry", "reset", "refused", "temporary"]
-)
-
-
-def _is_transient_error(exc: Exception) -> bool:
-    return any(kw in str(exc).lower() for kw in _TRANSIENT_ERROR_KEYWORDS)
-
-
-MODAL_AUTH_GUIDANCE = """Modal authentication is required to use Modal sandboxes.
-
-Run one of these commands to sign in:
-  modal setup
-  python -m modal setup
-
-For non-interactive environments, configure a Modal token instead:
-  modal token new
-
-You can also provide credentials with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.
-After setup completes, retry your sandbox command."""
 
 
 class SandboxProvider(Protocol):
@@ -330,95 +315,6 @@ def _quote(value: str) -> str:
     return shlex.quote(value)
 
 
-def _is_modal_auth_error(exc: Exception, modal: object | None = None) -> bool:
-    """Return whether an exception is Modal's configured auth error type.
-
-    Args:
-        exc: Exception raised by Modal or the provider.
-        modal: Optional Modal module object. When omitted, Modal is loaded
-            lazily.
-
-    Returns:
-        `True` when the exception is recognized as a Modal auth failure.
-    """
-    if modal is None:
-        try:
-            modal = ModalSandboxProvider._load_modal()
-        except RuntimeError:
-            return False
-
-    auth_error = getattr(getattr(modal, "exception", None), "AuthError", None)
-    return isinstance(exc, auth_error) if isinstance(auth_error, type) else False
-
-
-def _raise_with_auth_guidance(exc: Exception) -> None:
-    """Raise a package auth error with actionable Modal setup guidance.
-
-    Args:
-        exc: Original Modal authentication exception.
-
-    Raises:
-        ModalAuthenticationError: Always raised with setup commands and the
-            original Modal detail.
-    """
-    detail = str(exc).strip()
-    message = MODAL_AUTH_GUIDANCE
-    if detail:
-        message = f"{message}\n\nModal error: {detail}"
-    raise ModalAuthenticationError(message) from exc
-
-
-def _translate_modal_auth_error(exc: Exception, modal: object | None = None) -> None:
-    """Translate Modal auth failures into SDK-specific exceptions.
-
-    Args:
-        exc: Exception raised by Modal or the provider.
-        modal: Optional Modal module object used for type checks.
-
-    Raises:
-        ModalAuthenticationError: If `exc` is recognized as a Modal auth error.
-    """
-    if _is_modal_auth_error(exc, modal):
-        _raise_with_auth_guidance(exc)
-
-
-def _is_modal_not_found_error(exc: Exception, modal: object | None = None) -> bool:
-    """Return whether an exception is Modal's not-found error type.
-
-    Args:
-        exc: Exception raised by Modal or the provider.
-        modal: Optional Modal module object. When omitted, Modal is loaded
-            lazily.
-
-    Returns:
-        `True` when the exception is recognized as Modal's not-found error.
-    """
-    if modal is None:
-        try:
-            modal = ModalSandboxProvider._load_modal()
-        except RuntimeError:
-            return False
-
-    not_found_error = getattr(getattr(modal, "exception", None), "NotFoundError", None)
-    return isinstance(exc, not_found_error) if isinstance(not_found_error, type) else False
-
-
-def _raise_provider_error(exc: Exception, *, context: str | None = None) -> NoReturn:
-    """Raise a provider error with optional operation context.
-
-    Args:
-        exc: Original provider exception.
-        context: Human-readable operation, such as "running shell command".
-
-    Raises:
-        SandboxProviderError: Always raised with the original exception chained.
-    """
-    detail = str(exc) or exc.__class__.__name__
-    if context:
-        detail = f"{context}: {detail}"
-    raise SandboxProviderError(detail) from exc
-
-
 def _truncate_text(value: str, max_bytes: int | None) -> tuple[str, bool]:
     """Apply an output byte cap to a text stream.
 
@@ -591,8 +487,8 @@ class ModalSandboxProvider:
             # mounted workspace volume.
             provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
-            _translate_modal_auth_error(exc, modal)
-            _raise_provider_error(exc, context="creating Modal sandbox")
+            translate_modal_auth_error(exc, modal, load_modal=cls._load_modal)
+            raise_provider_error(exc, context="creating Modal sandbox")
         return provider
 
     @classmethod
@@ -623,12 +519,12 @@ class ModalSandboxProvider:
             if ensure_workspace:
                 provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
-            _translate_modal_auth_error(exc, modal)
-            if _is_modal_not_found_error(exc, modal):
+            translate_modal_auth_error(exc, modal, load_modal=cls._load_modal)
+            if is_modal_not_found_error(exc, modal, load_modal=cls._load_modal):
                 raise SandboxNotFoundError(
                     f"No running Modal sandbox named {name!r} was found in app {config.app_name!r}."
                 ) from exc
-            _raise_provider_error(exc, context=f"attaching to Modal sandbox named {name}")
+            raise_provider_error(exc, context=f"attaching to Modal sandbox named {name}")
         return provider
 
     @classmethod
@@ -659,8 +555,8 @@ class ModalSandboxProvider:
             if ensure_workspace:
                 provider.mkdir(config.workspace, parents=True)
         except Exception as exc:
-            _translate_modal_auth_error(exc, modal)
-            _raise_provider_error(exc, context=f"attaching to Modal sandbox {sandbox_id}")
+            translate_modal_auth_error(exc, modal, load_modal=cls._load_modal)
+            raise_provider_error(exc, context=f"attaching to Modal sandbox {sandbox_id}")
         return provider
 
     @staticmethod
@@ -721,11 +617,11 @@ class ModalSandboxProvider:
             try:
                 return operation()
             except Exception as exc:
-                _translate_modal_auth_error(exc)
-                if attempt < max_attempts - 1 and _is_transient_error(exc):
+                translate_modal_auth_error(exc, load_modal=self._load_modal)
+                if attempt < max_attempts - 1 and is_transient_error(exc):
                     time.sleep(delay * (2**attempt))
                     continue
-                _raise_provider_error(exc, context=context)
+                raise_provider_error(exc, context=context)
 
     def run(
         self,
@@ -767,8 +663,8 @@ class ModalSandboxProvider:
             timed_out = True
             stderr = str(exc)
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context="running shell command")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context="running shell command")
         duration_ms = int((time.monotonic() - start) * 1000)
         stdout, stdout_truncated = _truncate_text(stdout, effective_max_output_bytes)
         stderr, stderr_truncated = _truncate_text(stderr, effective_max_output_bytes)
@@ -834,8 +730,8 @@ class ModalSandboxProvider:
             timed_out = True
             stderr = str(exc)
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context="running argv command")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context="running argv command")
         duration_ms = int((time.monotonic() - start) * 1000)
         stdout, stdout_truncated = _truncate_text(stdout, effective_max_output_bytes)
         stderr, stderr_truncated = _truncate_text(stderr, effective_max_output_bytes)
@@ -889,8 +785,8 @@ class ModalSandboxProvider:
                 pty=pty,
             )
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context="starting detached command")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context="starting detached command")
         return SandboxCommand(process)
 
     def write_text(self, path: str, content: str) -> None:
@@ -1020,8 +916,8 @@ class ModalSandboxProvider:
             self._owns_sandbox = False
             self._closed = True
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context="detaching Modal sandbox")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context="detaching Modal sandbox")
 
     def terminate(self, *, wait: bool = True) -> None:
         """Terminate the Modal sandbox.
@@ -1036,8 +932,8 @@ class ModalSandboxProvider:
             self._owns_sandbox = False
             self._closed = True
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context="terminating Modal sandbox")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context="terminating Modal sandbox")
 
     def domain(self, port: int) -> str:
         """Return the public HTTPS URL for a declared sandbox port.
@@ -1057,8 +953,8 @@ class ModalSandboxProvider:
         except Exception as exc:
             if isinstance(exc, ValueError):
                 raise
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context=f"resolving tunnel for port {port}")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context=f"resolving tunnel for port {port}")
 
     def create_snapshot(self) -> SandboxSnapshot:
         """Return a volume-backed workspace snapshot checkpoint.
@@ -1169,8 +1065,8 @@ class ModalSandboxProvider:
                 normalized_events.extend(_file_watch_events(event))
             return normalized_events
         except Exception as exc:
-            _translate_modal_auth_error(exc)
-            _raise_provider_error(exc, context=f"watching {remote_path}")
+            translate_modal_auth_error(exc, load_modal=self._load_modal)
+            raise_provider_error(exc, context=f"watching {remote_path}")
 
     def sync_workspace(self) -> CommandResult:
         """Persist workspace-volume changes without waiting for termination."""

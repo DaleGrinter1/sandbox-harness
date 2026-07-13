@@ -4,7 +4,7 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 ## Active
 
-None.
+- [Assessment Remediation](active/assessment-remediation/PLAN_assessment-remediation.md)
 
 ## Completed
 

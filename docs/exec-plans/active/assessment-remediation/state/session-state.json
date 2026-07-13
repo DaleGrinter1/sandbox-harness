@@ -1,0 +1,14 @@
+{
+  "initiative": "assessment-remediation",
+  "schema_version": 1,
+  "active_feature": "agent-and-doc-updates",
+  "blockers": [],
+  "next_action": "Initiative implementation complete; review changes and move to completed after human acceptance if desired.",
+  "handoff_rules": [
+    "Read PLAN_assessment-remediation.md before editing state.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence is recorded."
+  ],
+  "last_updated": "2026-07-13T00:00:00+09:30"
+}

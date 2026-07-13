@@ -5,6 +5,7 @@ Design docs are the durable explanation layer for agents and humans. Keep them c
 ## Core Docs
 
 - [Core Beliefs](core-beliefs.md): operating principles for this SDK.
+- [Cognitive Load](cognitive-load.md): maintainability rules for keeping SDK and agent handoff complexity low.
 - [Vercel Compatibility](vercel-style-sdk-compatibility.md): compatibility surface and limits.
 
 ## Maintenance Rules

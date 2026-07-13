@@ -7,15 +7,39 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
       - id: ruff-check
         name: ruff check
         entry: uv run ruff check .
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
       - id: pyright
         name: pyright
         entry: uv run pyright
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
+      - id: focused-pytest
+        name: focused pytest
+        entry: uv run pytest tests/test_sandbox.py tests/test_provider_modal.py tests/test_packaging.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: exec-plan-state
+        name: exec-plan state
+        entry: bash ./scripts/execplan/check.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: release-check
+        name: release check
+        entry: bash ./scripts/dev/release-check.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
