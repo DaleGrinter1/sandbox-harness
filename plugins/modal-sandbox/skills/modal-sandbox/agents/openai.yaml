@@ -1,0 +1,4 @@
+interface:
+  display_name: "Modal Sandbox"
+  short_description: "Run code safely in Modal Sandboxes"
+  default_prompt: "Use $modal-sandbox to run this task in an isolated Modal Sandbox."

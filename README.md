@@ -1,8 +1,9 @@
-# Modal Sandbox SDK
+# Modal Sandbox
 
-Small Python SDK and JSON-first CLI for running commands and file workflows
-inside Modal Sandboxes. It is a lightweight helper for new users and agents,
-not a replacement for Modal's backend or full Python SDK.
+A Codex plugin for running coding tasks and file workflows inside Modal
+Sandboxes. The plugin is the primary product entry point; the existing
+`modal-sandbox-sdk` Python package and JSON-first `sandbox` CLI remain its
+tested execution engine and an advanced direct-use surface.
 
 Use it when you want to:
 
@@ -14,9 +15,30 @@ Use it when you want to:
   creation.
 - Inspect a JSON-friendly CLI contract before creating Modal resources.
 
-## Quick Start
+## Plugin Quick Start
 
-Install the package (requires Python 3.11+):
+Install the required CLI first (Python 3.11+):
+
+```bash
+pip install modal-sandbox-sdk
+```
+
+Add this checkout's repo-local marketplace and install the plugin:
+
+```bash
+codex plugin marketplace add .agents/plugins
+codex plugin add modal-sandbox@personal
+```
+
+Start a new Codex thread so the plugin and `$modal-sandbox` skill are loaded,
+then ask it to run a coding task in Modal. The skill starts with `sandbox dry`,
+`sandbox doctor`, and `sandbox schema --agent`; those commands do not create
+Modal resources. Live operations still require an explicit execution request
+and authenticated Modal credentials.
+
+## SDK and CLI Quick Start
+
+To use the engine directly, install the package:
 
 ```bash
 pip install modal-sandbox-sdk

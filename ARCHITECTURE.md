@@ -1,9 +1,11 @@
 # Architecture
 
-`modal-sandbox-sdk` is a small Python SDK and JSON-first CLI for Modal Sandbox command and file workflows.
+The `modal-sandbox` Codex plugin is the primary product entry point for coding agents. It delegates execution to the public `modal-sandbox-sdk` package and its JSON-first `sandbox` CLI; the plugin does not duplicate the Python implementation or add an MCP server.
 
 ## Package Boundaries
 
+- `plugins/modal-sandbox/`: distributable Codex plugin and end-user skill.
+- `.agents/plugins/marketplace.json`: repo-local plugin marketplace entry.
 - `packages/sandbox/`: public Python SDK.
 - `packages/sandbox_cli/`: CLI entrypoint and JSON contract.
 - `tests/`: fake-provider unit tests plus opt-in live Modal tests.
@@ -22,6 +24,8 @@
 
 ## Design Constraints
 
+- Require an installed `sandbox` CLI and discover capabilities through `sandbox schema --agent`.
+- Keep plugin discovery resource-free and require explicit authorization for live Modal operations.
 - Keep Modal imported lazily so importing `sandbox` stays lightweight.
 - Default tests must not create real Modal resources.
 - File helpers operate inside the Modal sandbox workspace, never the local repository filesystem.

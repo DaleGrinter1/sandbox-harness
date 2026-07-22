@@ -5,6 +5,7 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 ## Active
 
 - [Assessment Remediation](active/assessment-remediation/PLAN_assessment-remediation.md)
+- [Plugin-First Product](active/plugin-first-product/PLAN_plugin-first-product.md)
 
 ## Completed
 

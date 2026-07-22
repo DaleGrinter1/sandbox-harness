@@ -1,5 +1,5 @@
 {
-  "description": "Low-token orientation manifest for agents working with modal-sandbox-sdk.",
+  "description": "Low-token orientation manifest for the modal-sandbox plugin and its SDK/CLI engine.",
   "docs": {
     "agent_notes": "docs/references/agents.md",
     "cli_reference": "docs/references/cli.md",
@@ -100,7 +100,8 @@
     "index": "docs/exec-plans/index.md"
   },
   "product_boundary": [
-    "Small Python SDK and JSON-first CLI for Modal Sandbox workflows.",
+    "Codex plugin and end-user skill backed by a small Python SDK and JSON-first CLI.",
+    "The plugin requires the installed sandbox CLI and does not duplicate it or add MCP.",
     "Not a generic sandbox platform or replacement for Modal's full SDK.",
     "Keep Modal imported lazily and default validation resource-free."
   ],
@@ -135,6 +136,10 @@
       "path": ".agents/skills/modal-sandbox-package-maintenance/SKILL.md",
       "purpose": "SDK, CLI, provider, docs, tests, packaging, and release-facing changes."
     },
+    "public_plugin": {
+      "path": "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+      "purpose": "End-user Codex workflow for safe discovery and authorized Modal Sandbox execution."
+    },
     "repo_understanding": {
       "path": ".agents/skills/modal-sandbox-repo-understanding/SKILL.md",
       "purpose": "Repo orientation, product boundaries, golden workflows, and planning state."
@@ -151,5 +156,5 @@
     "quick_no_resource": "./scripts/dev/quickstart.sh",
     "schema_codegen": "./scripts/dev/schema.sh"
   },
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

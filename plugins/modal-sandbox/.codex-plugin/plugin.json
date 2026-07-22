@@ -1,0 +1,29 @@
+{
+  "name": "modal-sandbox",
+  "version": "0.1.0",
+  "description": "Run coding tasks safely in Modal Sandboxes through the modal-sandbox-sdk CLI.",
+  "author": {
+    "name": "DaleGrinter1",
+    "email": "dalegrinter1@gmail.com",
+    "url": "https://github.com/DaleGrinter1"
+  },
+  "homepage": "https://github.com/DaleGrinter1/sandbox-harness",
+  "repository": "https://github.com/DaleGrinter1/sandbox-harness",
+  "license": "MIT",
+  "keywords": ["modal", "sandbox", "coding-agents", "remote-execution"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Modal Sandbox",
+    "shortDescription": "Run coding tasks in isolated Modal Sandboxes.",
+    "longDescription": "Guides coding agents through safe discovery, authenticated execution, persistent files, and reusable Modal Sandbox workflows using the modal-sandbox-sdk CLI.",
+    "developerName": "DaleGrinter1",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/DaleGrinter1/sandbox-harness",
+    "defaultPrompt": [
+      "Run this task in an isolated Modal Sandbox.",
+      "Use a Modal volume to persist these workspace files.",
+      "Start a reusable Modal Sandbox for this coding task."
+    ]
+  }
+}

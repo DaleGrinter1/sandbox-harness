@@ -34,8 +34,10 @@ uv run pre-commit run release-check --hook-stage manual
 ```
 
 When CLI schema metadata changes, regenerate and review
-`docs/generated/cli-schema.json`; the default test suite compares it to the
-runtime schema.
+`docs/generated/cli-schema.json` and `docs/generated/agent-manifest.json`;
+the default test suite compares them to the runtime schema. Also review the
+public skill at `plugins/modal-sandbox/skills/modal-sandbox/SKILL.md` because it
+uses schema version 1 as its capability contract.
 
 ```bash
 ./scripts/dev/schema.sh
@@ -46,6 +48,31 @@ Then check the built package metadata and install path:
 ```bash
 ./scripts/dev/release-check.sh
 ```
+
+The release check also validates the repo-local marketplace, plugin manifest,
+and skill contract. Plugin releases are independent from package releases;
+plugin `0.1.x` is tested against CLI schema version `1`, not one exact package
+version.
+
+## Local Plugin Iteration
+
+The repo-local marketplace lives at `.agents/plugins/marketplace.json`. Add it
+once, install the plugin, and start a new Codex thread:
+
+```bash
+codex plugin marketplace add .agents/plugins
+codex plugin add modal-sandbox@personal
+```
+
+After editing an already-installed local plugin, update its Codex cachebuster
+without changing its base version, reinstall it, and start another new thread:
+
+```bash
+uv run python scripts/dev/update-plugin-cachebuster.py plugins/modal-sandbox
+codex plugin add modal-sandbox@personal
+```
+
+Do not hand-edit marketplace configuration during this update loop.
 
 PyPI publishing uses GitHub trusted publishing. The `Publish` workflow runs
 when a GitHub Release is published and expects a protected `pypi` environment

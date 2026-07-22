@@ -1,6 +1,24 @@
 # Agent And MCP Notes
 
-This package does not require MCP at runtime. MCPs and repo-local skills are development helpers for agents working on the repository.
+The public `modal-sandbox` plugin does not require MCP. It ships one end-user
+skill at `plugins/modal-sandbox/skills/modal-sandbox/` and delegates execution
+to the installed `sandbox` CLI. The skills under `.agents/skills/` remain
+development helpers for agents working on the repository.
+
+## Public Plugin
+
+Install the package prerequisite and repo-local plugin:
+
+```bash
+pip install modal-sandbox-sdk
+codex plugin marketplace add .agents/plugins
+codex plugin add modal-sandbox@personal
+```
+
+Start a new Codex thread after installation or reinstall so `$modal-sandbox`
+is loaded. The public skill checks for the CLI, runs safe discovery, verifies
+authentication, chooses one-shot versus persistent workflows, and cleans up
+agent-created long-lived sandboxes by default.
 
 For a complete handoff prompt, use
 [new-agent-prompt.md](new-agent-prompt.md). It tells agents how to start with

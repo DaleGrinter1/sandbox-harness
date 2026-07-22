@@ -23,6 +23,7 @@ aligned with the existing module boundaries.
 - Default tests must not create Modal resources.
 - File helpers operate inside the Modal sandbox workspace.
 - CLI schema, parser behavior, docs, and tests move together.
+- CLI schema or workflow changes must also review `plugins/modal-sandbox/skills/modal-sandbox/SKILL.md` and plugin compatibility tests.
 - Discovery commands must not instantiate `Sandbox`.
 - Nonzero sandbox command exits remain `CommandResult.exit_code`, not exceptions.
 - Live Modal validation is opt-in only.
@@ -40,6 +41,7 @@ Before finishing package changes, run:
 
 ```bash
 ./scripts/dev/check.sh
+./scripts/dev/release-check.sh
 ```
 
 Run live tests only when explicitly requested:

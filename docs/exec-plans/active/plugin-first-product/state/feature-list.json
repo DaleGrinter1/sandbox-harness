@@ -1,0 +1,59 @@
+{
+  "initiative": "plugin-first-product",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "plugin-skill-scaffold",
+      "title": "Create the public plugin and end-user skill",
+      "description": "The repo-local plugin, marketplace entry, and safety-focused user skill exist and validate.",
+      "priority": 1,
+      "evidence": [
+        "plugins/modal-sandbox/.codex-plugin/plugin.json",
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        ".agents/plugins/marketplace.json",
+        "skill quick_validate.py passed",
+        "plugin validate_plugin.py passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-contract-tests",
+      "title": "Add plugin packaging and behavior contract tests",
+      "description": "Tests enforce plugin identity, CLI prerequisites, workflow selection, and live-action boundaries.",
+      "priority": 2,
+      "evidence": [
+        "tests/test_packaging.py",
+        "uv run pytest tests/test_packaging.py -q: 13 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-first-docs",
+      "title": "Reposition product and maintenance documentation",
+      "description": "Product, architecture, agent, development, and changelog docs present the plugin as the front door.",
+      "priority": 3,
+      "evidence": [
+        "README.md",
+        "ARCHITECTURE.md",
+        "docs/PRODUCT_SENSE.md",
+        "docs/references/agents.md",
+        "docs/references/development.md",
+        "CHANGELOG.md"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-release-validation",
+      "title": "Validate plugin-aware release readiness",
+      "description": "Creator validators, generated schema, no-resource tests, release checks, and exec-plan state pass.",
+      "priority": 4,
+      "evidence": [
+        "./scripts/dev/schema.sh passed",
+        "./scripts/dev/check.sh passed: 191 passed, 5 skipped",
+        "./scripts/dev/release-check.sh passed",
+        "./scripts/execplan/check.sh passed"
+      ],
+      "passes": true
+    }
+  ]
+}

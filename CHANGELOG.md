@@ -7,6 +7,12 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## Unreleased
 
+- Added the repo-local `modal-sandbox` Codex plugin and `$modal-sandbox` skill
+  as the primary product entry point for coding agents.
+- Added safe CLI preflight, authentication checks, workflow selection, cleanup
+  rules, plugin marketplace metadata, and plugin-aware release validation.
+- Repositioned the existing Python SDK and JSON CLI as the plugin's compatible
+  execution engine without deprecating public imports or commands.
 - Added `sandbox schema --agent` and generated `docs/generated/agent-manifest.json`
   for low-token agent orientation.
 

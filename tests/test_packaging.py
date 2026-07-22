@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import json
 import tomllib
 from pathlib import Path
 
@@ -167,3 +169,76 @@ def test_repo_local_agent_skills_are_development_only_source_artifacts() -> None
         assert metadata["name"] == skill_name
         assert metadata["description"]
         assert not (skill_dir / "agents" / "openai.yaml").exists()
+
+
+def test_modal_sandbox_plugin_identity_and_marketplace_contract() -> None:
+    plugin_root = Path("plugins/modal-sandbox")
+    manifest = json.loads((plugin_root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+    marketplace = json.loads(Path(".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+
+    assert manifest["name"] == plugin_root.name == "modal-sandbox"
+    assert manifest["version"] == "0.1.0"
+    assert manifest["license"] == "MIT"
+    assert manifest["repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
+    assert manifest["skills"] == "./skills/"
+    assert manifest["interface"]["category"] == "Developer Tools"
+    assert "mcpServers" not in manifest
+    assert "apps" not in manifest
+    assert "hooks" not in manifest
+
+    assert marketplace["name"] == "personal"
+    assert marketplace["interface"]["displayName"] == "Personal"
+    assert marketplace["plugins"] == [
+        {
+            "name": "modal-sandbox",
+            "source": {"source": "local", "path": "./plugins/modal-sandbox"},
+            "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+            "category": "Developer Tools",
+        }
+    ]
+
+
+def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
+    skill_root = Path("plugins/modal-sandbox/skills/modal-sandbox")
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    openai_yaml = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
+
+    frontmatter = skill.split("---", 2)[1].strip()
+    assert frontmatter.startswith("name: modal-sandbox\n")
+    assert "execute code or tests in isolation" in frontmatter
+    assert "pip install modal-sandbox-sdk" in skill
+    assert "Do not install the package silently" in skill
+    assert "sandbox dry" in skill
+    assert "sandbox doctor" in skill
+    assert "sandbox schema --agent" in skill
+    assert "doctor.credentials.authenticated" in skill
+    assert "Use `sandbox run` or `sandbox run-command`" in skill
+    assert "--workspace-volume NAME" in skill
+    assert "--name NAME start" in skill
+    assert "Stop an agent-created reusable" in skill
+    assert "A nonzero sandbox command exit is a" in skill
+    assert "Discovery, explanation, and planning requests do not" in skill
+    assert 'default_prompt: "Use $modal-sandbox' in openai_yaml
+
+
+def test_plugin_docs_record_schema_compatibility_and_new_thread_install_flow() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    development = Path("docs/references/development.md").read_text(encoding="utf-8")
+
+    assert "pip install modal-sandbox-sdk" in readme
+    assert "codex plugin marketplace add .agents/plugins" in readme
+    assert "codex plugin add modal-sandbox@personal" in readme
+    assert "Start a new Codex thread" in readme
+    assert "plugin `0.1.x` is tested against CLI schema version `1`" in development
+    assert "update-plugin-cachebuster.py" in development
+
+
+def test_plugin_cachebuster_replaces_existing_suffix() -> None:
+    script_path = Path("scripts/dev/update-plugin-cachebuster.py")
+    spec = importlib.util.spec_from_file_location("update_plugin_cachebuster", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.with_cachebuster("0.1.0", "Local Test") == "0.1.0+codex.local-test"
+    assert module.with_cachebuster("0.1.0+codex.old", "next") == "0.1.0+codex.next"

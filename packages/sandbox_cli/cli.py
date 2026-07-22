@@ -165,6 +165,10 @@ COMMAND_RESULT_SCHEMA = {
 }
 
 AGENT_SKILLS = {
+    "public_plugin": {
+        "path": "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "purpose": "End-user Codex workflow for safe discovery and authorized Modal Sandbox execution.",
+    },
     "repo_understanding": {
         "path": ".agents/skills/modal-sandbox-repo-understanding/SKILL.md",
         "purpose": "Repo orientation, product boundaries, golden workflows, and planning state.",
@@ -1198,9 +1202,10 @@ def _agent_manifest_payload() -> dict[str, object]:
         "package": "modal-sandbox-sdk",
         "version": _package_version(),
         "schema_version": CLI_SCHEMA_VERSION,
-        "description": "Low-token orientation manifest for agents working with modal-sandbox-sdk.",
+        "description": "Low-token orientation manifest for the modal-sandbox plugin and its SDK/CLI engine.",
         "product_boundary": [
-            "Small Python SDK and JSON-first CLI for Modal Sandbox workflows.",
+            "Codex plugin and end-user skill backed by a small Python SDK and JSON-first CLI.",
+            "The plugin requires the installed sandbox CLI and does not duplicate it or add MCP.",
             "Not a generic sandbox platform or replacement for Modal's full SDK.",
             "Keep Modal imported lazily and default validation resource-free.",
         ],

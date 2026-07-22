@@ -1,0 +1,14 @@
+{
+  "initiative": "plugin-first-product",
+  "schema_version": 1,
+  "active_feature": "plugin-release-validation",
+  "blockers": [],
+  "next_action": "Install the repo-local marketplace, reinstall the plugin, and perform acceptance in a new Codex thread when desired.",
+  "handoff_rules": [
+    "Read PLAN_plugin-first-product.md before editing state.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence is recorded."
+  ],
+  "last_updated": "2026-07-23T01:00:00+09:30"
+}
