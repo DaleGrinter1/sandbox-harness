@@ -116,9 +116,11 @@ def test_release_readiness_files_are_present() -> None:
 
     assert "stages: [pre-push]" in pre_commit
     assert "id: release-check" in pre_commit
-    assert "uv build" in release_check
+    assert "uv build --clear" in release_check
     assert "twine check dist/*" in release_check
     assert "id-token: write" in publish_workflow
+    assert "run: bash scripts/dev/release-check.sh" in publish_workflow
+    assert "run: bash scripts/dev/release-check.sh" in testpypi_workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in publish_workflow
     assert "repository-url: https://test.pypi.org/legacy/" in testpypi_workflow
 

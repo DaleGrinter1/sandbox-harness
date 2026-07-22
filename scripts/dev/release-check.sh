@@ -7,7 +7,7 @@ echo "==> plugin and skill contract"
 uv run pytest tests/test_packaging.py -k 'plugin or marketplace or public_skill'
 
 echo "==> build"
-uv build
+uv build --clear
 
 echo "==> twine check"
 uv run twine check dist/*

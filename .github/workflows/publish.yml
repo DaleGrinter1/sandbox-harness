@@ -31,7 +31,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Run release check
-        run: ./scripts/dev/release-check.sh
+        run: bash scripts/dev/release-check.sh
 
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@release/v1
