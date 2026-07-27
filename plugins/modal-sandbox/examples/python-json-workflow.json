@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "benchmark_id": "python-json-workflow",
+  "description": "Credential-free example comparing equivalent JSON serialization workflows.",
+  "scenarios": [
+    {
+      "id": "compact-json",
+      "command": "python -c \"import json; print(json.dumps({'ok': True}, separators=(',', ':')))\"",
+      "runtime": "python3.13",
+      "setup_command": null,
+      "cleanup_command": null,
+      "warmups": 0,
+      "repetitions": 1,
+      "timeout_seconds": 30,
+      "sandbox_timeout_seconds": 300,
+      "max_output_bytes": 4096,
+      "env": {},
+      "network": {
+        "block": true,
+        "allow_domains": [],
+        "allow_cidrs": []
+      },
+      "redact": []
+    }
+  ]
+}

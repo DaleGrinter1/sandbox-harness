@@ -6,12 +6,14 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 - [Assessment Remediation](active/assessment-remediation/PLAN_assessment-remediation.md)
 - [Plugin-First Product](active/plugin-first-product/PLAN_plugin-first-product.md)
+- [Public Plugin Onboarding](active/public-plugin-onboarding/PLAN_public-plugin-onboarding.md)
 
 ## Completed
 
 - [Modal Native Sandbox Expansion](completed/modal-native-sandbox-expansion/PLAN_modal-native-sandbox-expansion.md)
 - [Repository Knowledge System](completed/repository-knowledge-system/PLAN_repository-knowledge-system.md)
 - [Release Readiness Hardening](completed/release-readiness-hardening/PLAN_release-readiness-hardening.md)
+- [Sandbox Workflow Expansion](completed/sandbox-workflow-expansion/PLAN_sandbox-workflow-expansion.md)
 
 ## Workflow Summary
 

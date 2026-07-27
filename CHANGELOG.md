@@ -7,6 +7,14 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## Unreleased
 
+- Broadened the plugin from coding-specific prompts to tasks that need
+  isolated, reproducible, or resource-controlled execution.
+- Added a versioned workflow-benchmark contract, adversarial trigger corpus,
+  and portable plugin-owned preflight and benchmark helpers.
+- Changed the `modal-sandbox` plugin to version 0.2.0 with public GitHub
+  marketplace installation and isolated `uv tool` CLI onboarding.
+- Added CLI 0.4.0+ compatibility checks, explicit upgrade guidance, a safe
+  first-run preview, and deterministic plugin acceptance contracts.
 - Added the repo-local `modal-sandbox` Codex plugin and `$modal-sandbox` skill
   as the primary product entry point for coding agents.
 - Added safe CLI preflight, authentication checks, workflow selection, cleanup

@@ -1,14 +1,15 @@
 # Product Sense
 
-`modal-sandbox` helps coding agents run short-lived or reusable Modal
-Sandboxes through one Codex skill. The plugin is the product front door and
-uses the public `modal-sandbox-sdk` JSON CLI as its execution engine. The
-package remains available to developers directly; neither layer replaces
-Modal's backend or full SDK.
+`modal-sandbox` helps agents run tasks that need isolated, reproducible, or
+resource-controlled execution in short-lived or reusable Modal Sandboxes. The
+plugin is the product front door and uses the public `modal-sandbox-sdk` JSON
+CLI as its execution engine. The package remains available to developers
+directly; neither layer replaces Modal's backend or full SDK.
 
 ## Target Users
 
-- Coding agents that need isolated execution, JSON contracts, and safe discovery.
+- Agents that need isolated execution, JSON contracts, safe discovery, or
+  controlled comparisons of equivalent workflows.
 - Python developers who want direct access to the small synchronous SDK or CLI.
 - Teams that need file and volume workflows inside Modal workspaces.
 
@@ -20,3 +21,4 @@ Modal's backend or full SDK.
 4. Make persistence explicit through volumes.
 5. Keep command and file behavior predictable for agents.
 6. Preserve a small, compatible SDK and CLI execution surface.
+7. Make workflow comparisons reproducible and explicit about their limits.

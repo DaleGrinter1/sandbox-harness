@@ -1,13 +1,16 @@
 # Modal Sandbox
 
-A Codex plugin for running coding tasks and file workflows inside Modal
-Sandboxes. The plugin is the primary product entry point; the existing
+A Codex plugin for tasks that need isolated, reproducible, or
+resource-controlled execution inside Modal Sandboxes. The plugin is the primary
+product entry point; the existing
 `modal-sandbox-sdk` Python package and JSON-first `sandbox` CLI remain its
 tested execution engine and an advanced direct-use surface.
 
 Use it when you want to:
 
 - Run a command in a fresh Modal Sandbox.
+- Compare equivalent build, test, data, service, or agent workflows under the
+  same declared controls.
 - Write, read, list, remove, upload, or download sandbox files.
 - Keep files across CLI calls with an optional Modal volume.
 - Wait for TCP or argv-style readiness probes before issuing work.
@@ -17,24 +20,68 @@ Use it when you want to:
 
 ## Plugin Quick Start
 
-Install the required CLI first (Python 3.11+):
+Install the required CLI as an isolated command-line tool (Python 3.11+):
 
 ```bash
-pip install modal-sandbox-sdk
+uv tool install modal-sandbox-sdk
 ```
 
-Add this checkout's repo-local marketplace and install the plugin:
+Add the public GitHub marketplace and install the plugin:
 
 ```bash
-codex plugin marketplace add .agents/plugins
+codex plugin marketplace add DaleGrinter1/sandbox-harness
 codex plugin add modal-sandbox@personal
 ```
 
 Start a new Codex thread so the plugin and `$modal-sandbox` skill are loaded,
-then ask it to run a coding task in Modal. The skill starts with `sandbox dry`,
+then ask it to run an isolated task in Modal. The skill starts with
+`sandbox dry`,
 `sandbox doctor`, and `sandbox schema --agent`; those commands do not create
 Modal resources. Live operations still require an explicit execution request
 and authenticated Modal credentials.
+
+Verify the five-minute onboarding path:
+
+```bash
+sandbox --version
+sandbox doctor
+```
+
+Then ask Codex: `Use $modal-sandbox to preview my first sandbox without
+creating resources.` If `uv` is unavailable, install the package with
+`python -m pip install --user modal-sandbox-sdk` and ensure the user-level
+Python scripts directory is on `PATH`.
+
+For development from a local checkout, replace the marketplace source with
+`.agents/plugins` and reinstall after updating the plugin cachebuster.
+
+The public installation does not require a repository checkout. The plugin is
+downloaded from the GitHub marketplace, the `sandbox` engine is installed as an
+isolated PyPI tool, and distributed helpers resolve their files from the
+installed plugin directory rather than the current working directory.
+
+## Workflow Benchmarks
+
+The plugin can validate and run bounded comparisons of equivalent workflows.
+Start from the distributed example and validate it without a CLI, credentials,
+or Modal resources:
+
+```bash
+python <plugin-root>/scripts/benchmark.py \
+  <plugin-root>/examples/python-json-workflow.json \
+  --validate-only
+```
+
+After reviewing the manifest and explicitly authorizing live Modal execution:
+
+```bash
+python <plugin-root>/scripts/benchmark.py scenario.json --allow-live
+```
+
+The report includes declared runtime controls, warmups, measured repetitions,
+host-observed duration, command results, hashes and bounded/redacted output
+previews, failure classifications, and comparison limitations. See
+[the workflow benchmarking contract](docs/product-specs/sandbox-workflow-benchmarking.md).
 
 ## SDK and CLI Quick Start
 

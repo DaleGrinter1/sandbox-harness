@@ -1,0 +1,73 @@
+{
+  "initiative": "sandbox-workflow-expansion",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "skill-trigger-adversarial-review",
+      "title": "Broaden and adversarially validate skill discovery",
+      "description": "The public metadata targets tasks that need a sandbox, and a labeled prompt corpus demonstrates improved trigger recall without unsafe or irrelevant activation.",
+      "priority": 1,
+      "evidence": [
+        "plugins/modal-sandbox/evals/skill-trigger-corpus.json",
+        "docs/generated/plugin-adversarial-review.json",
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "plugins/modal-sandbox/skills/modal-sandbox/agents/openai.yaml",
+        "official skill and plugin validators passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "workflow-benchmark-contract",
+      "title": "Specify reproducible workflow benchmarking",
+      "description": "A product spec and versioned schemas define controlled scenarios, comparable results, limitations, and safety boundaries.",
+      "priority": 2,
+      "evidence": [
+        "docs/product-specs/sandbox-workflow-benchmarking.md",
+        "plugins/modal-sandbox/examples/python-json-workflow.json",
+        "tests/test_plugin_scripts.py"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-script-layer",
+      "title": "Add portable plugin-owned orchestration scripts",
+      "description": "Distributed cross-platform helpers provide deterministic preflight and benchmark execution without duplicating the SDK or CLI.",
+      "priority": 3,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/preflight.py",
+        "plugins/modal-sandbox/scripts/benchmark.py",
+        "focused plugin suite: 40 passed",
+        "official plugin validator passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "repo-independent-distribution",
+      "title": "Prove installation and execution outside the repository",
+      "description": "Clean-environment tests install from public sources and run plugin helpers from an unrelated working directory on supported operating systems.",
+      "priority": 4,
+      "evidence": [
+        "tests/test_plugin_distribution.py",
+        ".github/workflows/tests.yml plugin-portability matrix",
+        "scripts/dev/release-check.sh repository-independent plugin smoke",
+        "release check fresh wheel and external-working-directory smoke passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "expansion-release-validation",
+      "title": "Validate the expanded plugin release",
+      "description": "Creator, focused, clean-environment, no-resource, release, and exec-plan checks pass with evidence.",
+      "priority": 5,
+      "evidence": [
+        "./scripts/dev/check.sh passed: 218 passed, 5 skipped",
+        "./scripts/dev/release-check.sh passed",
+        "skill quick_validate.py passed",
+        "plugin validate_plugin.py passed",
+        "./scripts/execplan/check.sh passed",
+        "git diff --check passed"
+      ],
+      "passes": true
+    }
+  ]
+}

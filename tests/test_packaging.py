@@ -118,6 +118,9 @@ def test_release_readiness_files_are_present() -> None:
     assert "id: release-check" in pre_commit
     assert "uv build --clear" in release_check
     assert "twine check dist/*" in release_check
+    assert "repository-independent plugin smoke" in release_check
+    assert "scripts/preflight.py" in release_check
+    assert "scripts/benchmark.py" in release_check
     assert "id-token: write" in publish_workflow
     assert "run: bash scripts/dev/release-check.sh" in publish_workflow
     assert "run: bash scripts/dev/release-check.sh" in testpypi_workflow
@@ -179,7 +182,7 @@ def test_modal_sandbox_plugin_identity_and_marketplace_contract() -> None:
     marketplace = json.loads(Path(".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
 
     assert manifest["name"] == plugin_root.name == "modal-sandbox"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.3.0"
     assert manifest["license"] == "MIT"
     assert manifest["repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
     assert manifest["skills"] == "./skills/"
@@ -207,8 +210,11 @@ def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
 
     frontmatter = skill.split("---", 2)[1].strip()
     assert frontmatter.startswith("name: modal-sandbox\n")
-    assert "execute code or tests in isolation" in frontmatter
-    assert "pip install modal-sandbox-sdk" in skill
+    assert "isolated, reproducible, or resource-controlled execution" in frontmatter
+    assert "controlled workflow benchmarks" in frontmatter
+    assert "uv tool install modal-sandbox-sdk" in skill
+    assert "uv tool upgrade modal-sandbox-sdk" in skill
+    assert "0.4.0 or newer" in skill
     assert "Do not install the package silently" in skill
     assert "sandbox dry" in skill
     assert "sandbox doctor" in skill
@@ -220,18 +226,41 @@ def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
     assert "Stop an agent-created reusable" in skill
     assert "A nonzero sandbox command exit is a" in skill
     assert "Discovery, explanation, and planning requests do not" in skill
+    assert "scripts/preflight.py" in skill
+    assert "scripts/benchmark.py" in skill
+    assert "--validate-only" in skill
+    assert "--allow-live" in skill
     assert 'default_prompt: "Use $modal-sandbox' in openai_yaml
+
+
+def test_plugin_distributes_portable_scripts_examples_and_evals() -> None:
+    plugin_root = Path("plugins/modal-sandbox")
+    preflight = (plugin_root / "scripts/preflight.py").read_text(encoding="utf-8")
+    benchmark = (plugin_root / "scripts/benchmark.py").read_text(encoding="utf-8")
+    example = json.loads((plugin_root / "examples/python-json-workflow.json").read_text(encoding="utf-8"))
+    corpus = json.loads((plugin_root / "evals/skill-trigger-corpus.json").read_text(encoding="utf-8"))
+
+    assert preflight.startswith("#!/usr/bin/env python3")
+    assert benchmark.startswith("#!/usr/bin/env python3")
+    assert "uv run" not in preflight + benchmark
+    assert example["schema_version"] == "1"
+    assert corpus["schema_version"] == "1"
+    assert {case["expected"] for case in corpus["cases"]} == {
+        "activate",
+        "activate_without_live_action",
+        "do_not_activate",
+    }
 
 
 def test_plugin_docs_record_schema_compatibility_and_new_thread_install_flow() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     development = Path("docs/references/development.md").read_text(encoding="utf-8")
 
-    assert "pip install modal-sandbox-sdk" in readme
-    assert "codex plugin marketplace add .agents/plugins" in readme
+    assert "uv tool install modal-sandbox-sdk" in readme
+    assert "codex plugin marketplace add DaleGrinter1/sandbox-harness" in readme
     assert "codex plugin add modal-sandbox@personal" in readme
     assert "Start a new Codex thread" in readme
-    assert "plugin `0.1.x` is tested against CLI schema version `1`" in development
+    assert "plugin `0.3.x` is tested against CLI schema version `1`" in development
     assert "update-plugin-cachebuster.py" in development
 
 

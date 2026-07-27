@@ -1,6 +1,6 @@
 ---
 name: modal-sandbox
-description: Run coding tasks in Modal Sandboxes through the modal-sandbox-sdk JSON CLI. Use when Codex needs to execute code or tests in isolation, manipulate remote sandbox files, persist a workspace with a Modal volume, expose a sandbox service, or create and reuse a long-lived Modal Sandbox.
+description: Run tasks that need isolated, reproducible, or resource-controlled execution in Modal Sandboxes through the modal-sandbox-sdk JSON CLI. Use for untrusted commands, clean runtime experiments, build or test jobs, data workflows, service checks, agent evaluations, controlled workflow benchmarks, persistent remote files, or reusable Modal Sandboxes.
 ---
 
 # Modal Sandbox
@@ -9,14 +9,26 @@ Use the installed `sandbox` command as the execution engine. Do not install the 
 Do not invoke it through `uvx`, duplicate its implementation, or use an MCP
 server in place of the CLI.
 
+Use this skill when isolation or declared sandbox controls materially improve
+the task. Do not use it merely for explanation, planning, an ordinary local
+edit, or summarizing results that already exist.
+
+Resolve `<plugin-root>` from this installed `SKILL.md` as two directories up.
+Distributed helpers live under `<plugin-root>/scripts/` and must work from any
+current working directory.
+
 ## Preflight
 
-1. Run `sandbox --version`. If the command is unavailable, stop before any
-   live action and tell the user to run:
+1. Run `sandbox --version`. Require `modal-sandbox-sdk` 0.4.0 or newer. If the
+   command is unavailable, stop before any live action and tell the user to run:
 
    ```bash
-   pip install modal-sandbox-sdk
+   uv tool install modal-sandbox-sdk
    ```
+
+   If an older version is installed, stop and tell the user to run
+   `uv tool upgrade modal-sandbox-sdk`. Never change the user's Python
+   environment without explicit approval.
 
 2. Run the resource-free discovery sequence:
 
@@ -34,6 +46,17 @@ server in place of the CLI.
    For non-interactive environments, explain that both `MODAL_TOKEN_ID` and
    `MODAL_TOKEN_SECRET` must be configured; never request that secrets be pasted
    into source files or command history.
+5. For a first-time user, run `sandbox quickstart` as a resource-free preview.
+   Run `sandbox quickstart --run` only when the user explicitly asks to create
+   the first live sandbox.
+
+For one structured resource-free preflight, prefer:
+
+```bash
+python <plugin-root>/scripts/preflight.py
+```
+
+If Python cannot run the helper, use the direct CLI sequence above.
 
 ## Choose a Workflow
 
@@ -43,6 +66,22 @@ server in place of the CLI.
   `--sandbox-id ID`, when multiple operations must share one running sandbox.
 - Declare ports and readiness probes before starting a service; resolve its URL
   with `domain` only after readiness succeeds.
+- For a controlled comparison, create a versioned benchmark manifest and
+  validate it without resources:
+
+  ```bash
+  python <plugin-root>/scripts/benchmark.py scenario.json --validate-only
+  ```
+
+  After explicit authorization for live Modal execution, run:
+
+  ```bash
+  python <plugin-root>/scripts/benchmark.py scenario.json --allow-live
+  ```
+
+  Compare only equivalent inputs and controls. Report runtime or image,
+  resources, region when declared, network policy, warmups, repetitions,
+  timeouts, cache state, and the runner's limitations.
 
 Prefer the exact commands returned by `sandbox schema --agent`. Treat relative
 paths as relative to the sandbox workspace, not the user's local repository.
@@ -59,6 +98,12 @@ paths as relative to the sandbox workspace, not the user's local repository.
   sandbox when the requested work finishes unless the user explicitly asks to
   keep it running. Report any cleanup failure.
 - Never run the live test suite unless the user explicitly requests it.
+- Designing or validating a benchmark does not authorize running it. The
+  benchmark helper must receive `--allow-live`, and preflight must report
+  authenticated credentials, before it contacts Modal.
+- Treat user-supplied workflow commands as untrusted. Apply requested network
+  and resource controls, never place secrets in manifests, and keep repetitions,
+  timeouts, and output bounded.
 
 ## Results and Errors
 

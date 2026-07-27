@@ -1,0 +1,54 @@
+{
+  "initiative": "public-plugin-onboarding",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "remote-install",
+      "title": "Document public GitHub marketplace installation",
+      "description": "A new user has copy-paste CLI and plugin installation guidance.",
+      "priority": 1,
+      "evidence": [
+        "README.md",
+        "docs/product-specs/public-plugin-onboarding.md",
+        "codex plugin marketplace add supports Git repository sources"
+      ],
+      "passes": true
+    },
+    {
+      "id": "compatibility-preflight",
+      "title": "Add CLI compatibility and first-run preflight",
+      "description": "The skill detects missing or outdated CLI installations before live work.",
+      "priority": 2,
+      "evidence": [
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "plugin version 0.2.0",
+        "skill quick_validate.py passed",
+        "plugin validate_plugin.py passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "acceptance-contracts",
+      "title": "Add public plugin acceptance contracts",
+      "description": "Tests cover installation, safe discovery, workflow selection, and errors.",
+      "priority": 3,
+      "evidence": [
+        "tests/test_plugin_acceptance.py",
+        "focused plugin tests: 22 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "onboarding-validation",
+      "title": "Validate the onboarding milestone",
+      "description": "Creator, no-resource, release, and exec-plan checks pass.",
+      "priority": 4,
+      "evidence": [
+        "./scripts/dev/check.sh: 200 passed, 5 skipped",
+        "./scripts/dev/release-check.sh passed",
+        "./scripts/execplan/check.sh passed"
+      ],
+      "passes": true
+    }
+  ]
+}

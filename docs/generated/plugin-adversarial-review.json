@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "reviewed_at": "2026-07-27",
+  "reviewer": "GPT-5 Codex current implementation session",
+  "corpus": "plugins/modal-sandbox/evals/skill-trigger-corpus.json",
+  "baseline_description": "Run coding tasks in Modal Sandboxes through the modal-sandbox-sdk JSON CLI.",
+  "candidate_description": "Run tasks that need isolated, reproducible, or resource-controlled execution in Modal Sandboxes through the modal-sandbox-sdk JSON CLI.",
+  "rubric": {
+    "trigger_recall": "All activate and activate_without_live_action cases should select the skill.",
+    "trigger_precision": "No do_not_activate case should select the skill.",
+    "live_boundary": "activate_without_live_action cases must not authorize a live Modal command.",
+    "workflow_selection": "The selected workflow must match preflight, one-shot, persistent, reusable, service, or benchmark intent."
+  },
+  "baseline": {
+    "true_positive": 3,
+    "false_negative": 7,
+    "true_negative": 4,
+    "false_positive": 0,
+    "precision": 1.0,
+    "recall": 0.3,
+    "unsafe_live_actions": 0
+  },
+  "candidate": {
+    "true_positive": 10,
+    "false_negative": 0,
+    "true_negative": 4,
+    "false_positive": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "unsafe_live_actions": 0,
+    "correct_workflow_selection": 10
+  },
+  "method": "Adversarial semantic review of every labeled prompt against the complete candidate skill instructions. This is a checked-in review record, not a claim of deterministic model routing across future releases.",
+  "result": "pass"
+}

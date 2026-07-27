@@ -18,6 +18,8 @@ Product specs define what users should be able to do with `modal-sandbox-sdk`.
 
 - [CLI Golden Workflows](cli-golden-workflows.md)
 - [Modal-Native Filesystem And Source Workflows](modal-native-filesystem-and-source.md)
+- [Public Plugin Onboarding](public-plugin-onboarding.md)
+- [Sandbox Workflow Selection And Benchmarking](sandbox-workflow-benchmarking.md)
 - [Sandbox Network Allowlists](sandbox-domain-allowlist.md)
 - [Vercel-Style Conveniences](vercel-style-conveniences.md)
 - [Volume-Backed Snapshots](volume-backed-snapshots.md)

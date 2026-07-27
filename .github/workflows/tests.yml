@@ -57,3 +57,28 @@ jobs:
           /tmp/modal-sandbox-sdk-smoke/bin/python -m pip install dist/*.whl
           /tmp/modal-sandbox-sdk-smoke/bin/python -c "import sandbox, sandbox_cli; assert sandbox.Sandbox; assert sandbox_cli"
           /tmp/modal-sandbox-sdk-smoke/bin/sandbox schema
+
+  plugin-portability:
+    name: Plugin portability (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Validate plugin from an unrelated working directory
+        run: uv run pytest tests/test_plugin_scripts.py tests/test_plugin_distribution.py

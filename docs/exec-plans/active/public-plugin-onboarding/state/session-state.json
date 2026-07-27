@@ -1,0 +1,14 @@
+{
+  "initiative": "public-plugin-onboarding",
+  "schema_version": 1,
+  "active_feature": "onboarding-validation",
+  "blockers": [],
+  "next_action": "Install from the GitHub marketplace in a fresh Codex configuration and time the first-run preview.",
+  "handoff_rules": [
+    "Read PLAN_public-plugin-onboarding.md before editing state.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence is recorded."
+  ],
+  "last_updated": "2026-07-23T11:00:00+09:30"
+}

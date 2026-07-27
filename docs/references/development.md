@@ -51,8 +51,21 @@ Then check the built package metadata and install path:
 
 The release check also validates the repo-local marketplace, plugin manifest,
 and skill contract. Plugin releases are independent from package releases;
-plugin `0.1.x` is tested against CLI schema version `1`, not one exact package
+plugin `0.3.x` is tested against CLI schema version `1`, not one exact package
 version.
+
+The distributed plugin owns portable Python orchestration under
+`plugins/modal-sandbox/scripts/`. These helpers must use only the standard
+library, resolve assets relative to the installed plugin, delegate execution to
+the installed `sandbox` command, and run from a working directory outside the
+repository. Validate that contract with:
+
+```bash
+uv run pytest tests/test_plugin_scripts.py tests/test_plugin_distribution.py
+```
+
+`benchmark.py --validate-only` is always resource-free. Tests must use a fake
+CLI and must never pass `--allow-live`.
 
 ## Local Plugin Iteration
 
