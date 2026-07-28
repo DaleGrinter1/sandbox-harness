@@ -1,0 +1,16 @@
+{
+  "initiative": "senior-review-remediation-and-usability",
+  "schema_version": 1,
+  "active_feature": "next-usability-evaluation",
+  "blockers": [],
+  "next_action": "Implementation complete. Review changes, then move this initiative to completed when the maintainer accepts the remediation.",
+  "handoff_rules": [
+    "Read PLAN_senior-review-remediation-and-usability.md before implementation.",
+    "Complete remediation features before starting usability features.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after evidence-backed resource-free validation.",
+    "Run live Modal validation only after explicit authorization."
+  ],
+  "last_updated": "2026-07-28T13:47:54+09:30"
+}

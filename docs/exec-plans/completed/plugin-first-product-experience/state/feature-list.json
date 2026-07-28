@@ -1,0 +1,83 @@
+{
+  "initiative": "plugin-first-product-experience",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "plugin-first-framing",
+      "title": "Strengthen plugin-first framing without renaming",
+      "description": "README, architecture, product sense, and skill guidance present the plugin as the product surface while CLI/SDK remain engine layers.",
+      "priority": 1,
+      "evidence": [
+        "README.md",
+        "ARCHITECTURE.md",
+        "docs/PRODUCT_SENSE.md",
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "plugins/modal-sandbox/.codex-plugin/plugin.json",
+        "./scripts/dev/check.sh: 242 passed, 5 skipped",
+        "bash ./scripts/dev/release-check.sh: passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "workflow-examples",
+      "title": "Ship plugin workflow examples",
+      "description": "Common user intents have distributed JSON examples with safe commands, preview command, live commands, cleanup, and approval boundary.",
+      "priority": 2,
+      "evidence": [
+        "plugins/modal-sandbox/examples/run-tests-safely.json",
+        "plugins/modal-sandbox/examples/debug-failing-script.json",
+        "plugins/modal-sandbox/examples/persistent-workspace.json",
+        "plugins/modal-sandbox/examples/reusable-coding-sandbox.json",
+        "plugins/modal-sandbox/examples/benchmark-two-approaches.json",
+        "plugins/modal-sandbox/examples/inspect-and-cleanup.json",
+        "uv run pytest tests/test_plugin_acceptance.py tests/test_plugin_scripts.py tests/test_plugin_distribution.py tests/test_packaging.py: 46 passed",
+        "bash ./scripts/dev/release-check.sh: passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "workflow-planner",
+      "title": "Add resource-free workflow planner",
+      "description": "workflow.py validates examples and emits starter plans by intent without contacting Modal.",
+      "priority": 3,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/workflow.py",
+        "tests/test_plugin_scripts.py::test_workflow_examples_validate_without_modal",
+        "tests/test_plugin_scripts.py::test_workflow_planner_emits_resource_free_plan",
+        "uv run pytest tests/test_plugin_acceptance.py tests/test_plugin_scripts.py tests/test_plugin_distribution.py tests/test_packaging.py: 46 passed",
+        "bash ./scripts/dev/release-check.sh: passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "preflight-product-summary",
+      "title": "Make preflight output decision-friendly",
+      "description": "Preflight summary includes safe_to_continue, next_action, and requires_user_approval for plugin decisions.",
+      "priority": 4,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/preflight.py",
+        "tests/test_plugin_scripts.py::test_preflight_runs_only_resource_free_commands",
+        "uv run pytest tests/test_plugin_acceptance.py tests/test_plugin_scripts.py tests/test_plugin_distribution.py tests/test_packaging.py: 46 passed",
+        "./scripts/dev/check.sh: 242 passed, 5 skipped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-acceptance-contracts",
+      "title": "Strengthen plugin acceptance contracts",
+      "description": "Tests cover plugin-first examples, preview before live, cleanup authorization, workflow planner distribution, and prompt guidance.",
+      "priority": 5,
+      "evidence": [
+        "tests/test_plugin_acceptance.py",
+        "tests/test_plugin_distribution.py",
+        "tests/test_packaging.py",
+        "uv run pytest tests/test_plugin_acceptance.py tests/test_plugin_scripts.py tests/test_plugin_distribution.py tests/test_packaging.py: 46 passed",
+        "uv run pyright: 0 errors",
+        "./scripts/dev/check.sh: 242 passed, 5 skipped",
+        "bash ./scripts/dev/release-check.sh: passed",
+        "./scripts/execplan/check.sh: passed"
+      ],
+      "passes": true
+    }
+  ]
+}

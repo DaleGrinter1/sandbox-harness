@@ -104,6 +104,7 @@ def run_preflight(
             ("doctor", ["doctor"]),
             ("schema", ["schema", "--agent"]),
             ("quickstart", ["quickstart"]),
+            ("preview", ["--image", "py313", "preview", "run", "python", "-c", "print(123)"]),
         ):
             checks[name] = _run_json(executable, arguments, timeout_seconds=timeout_seconds)
             started_commands.append([executable, *arguments])
@@ -116,7 +117,22 @@ def run_preflight(
                 [executable, "schema", "--agent"],
             )
         credentials = checks["doctor"].get("credentials")
-        authenticated = bool(credentials.get("authenticated")) if isinstance(credentials, dict) else False
+        credential_complete = (
+            bool(credentials.get("complete") or credentials.get("verified")) if isinstance(credentials, dict) else False
+        )
+        problems = []
+        if not credential_complete:
+            problems.append("modal_credentials_incomplete")
+        summary = {
+            "ready_for_live": credential_complete,
+            "safe_to_continue": True,
+            "status": "ready_for_live" if credential_complete else "needs_setup",
+            "problems": problems,
+            "next_action": "preview_live_command" if credential_complete else "complete_modal_setup",
+            "next_command": "sandbox quickstart --run" if credential_complete else "sandbox doctor",
+            "requires_user_approval": credential_complete,
+            "preview_command": "sandbox --image py313 preview run python -c 'print(123)'",
+        }
         return {
             "schema_version": "1",
             "ok": True,
@@ -127,8 +143,9 @@ def run_preflight(
                 "minimum_version": min_version,
                 "schema_version": schema_version,
             },
-            "authenticated": authenticated,
-            "ready_for_live": authenticated,
+            "credential_complete": credential_complete,
+            "ready_for_live": credential_complete,
+            "summary": summary,
             "checks": checks,
             "commands": started_commands,
         }
@@ -147,6 +164,15 @@ def run_preflight(
             "ok": False,
             "resource_free": True,
             "ready_for_live": False,
+            "summary": {
+                "ready_for_live": False,
+                "safe_to_continue": False,
+                "status": "preflight_failed",
+                "problems": [error["code"]],
+                "next_action": "fix_preflight_error",
+                "next_command": "sandbox doctor",
+                "requires_user_approval": False,
+            },
             "error": error,
             "commands": started_commands,
         }

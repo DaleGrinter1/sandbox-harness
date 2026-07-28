@@ -105,6 +105,11 @@
     "Not a generic sandbox platform or replacement for Modal's full SDK.",
     "Keep Modal imported lazily and default validation resource-free."
   ],
+  "project_config": {
+    "disable": "sandbox --no-config ...",
+    "filename": "sandbox.toml",
+    "rule": "Config fills omitted global options; explicit CLI flags win."
+  },
   "read_order": [
     "AGENTS.md",
     "ARCHITECTURE.md",
@@ -112,6 +117,12 @@
     "docs/references/cli.md",
     "docs/exec-plans/index.md"
   ],
+  "resource_management": {
+    "cleanup_execute": "sandbox cleanup --app APP_ID_OR_NAME --yes",
+    "cleanup_preview": "sandbox cleanup --app APP_ID_OR_NAME",
+    "cleanup_requires_explicit_user_request": true,
+    "status_command": "sandbox status"
+  },
   "safe_discovery": {
     "commands": [
       "sandbox dry",

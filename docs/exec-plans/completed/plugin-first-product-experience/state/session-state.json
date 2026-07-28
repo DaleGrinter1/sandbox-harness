@@ -1,0 +1,15 @@
+{
+  "initiative": "plugin-first-product-experience",
+  "schema_version": 1,
+  "active_feature": "plugin-acceptance-contracts",
+  "blockers": [],
+  "next_action": "Implementation complete. Optional next step is live Modal validation, which requires explicit user approval and credentials.",
+  "handoff_rules": [
+    "Read PLAN_plugin-first-product-experience.md before implementation.",
+    "Do not rename the repo, package, CLI, plugin, or SDK.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence exists.",
+    "Do not run live Modal validation without explicit authorization."
+  ],
+  "last_updated": "2026-07-28T14:56:05+09:30"
+}

@@ -9,7 +9,8 @@
       "priority": 1,
       "evidence": [
         "README.md",
-        "docs/product-specs/public-plugin-onboarding.md",
+        "docs/PRODUCT_SENSE.md",
+        "docs/references/cli.md",
         "codex plugin marketplace add supports Git repository sources"
       ],
       "passes": true
@@ -21,7 +22,7 @@
       "priority": 2,
       "evidence": [
         "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
-        "plugin version 0.2.0",
+        "plugin version 0.4.0",
         "skill quick_validate.py passed",
         "plugin validate_plugin.py passed"
       ],

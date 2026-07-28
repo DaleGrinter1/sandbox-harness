@@ -3,7 +3,7 @@
   "schema_version": 1,
   "active_feature": "onboarding-validation",
   "blockers": [],
-  "next_action": "Install from the GitHub marketplace in a fresh Codex configuration and time the first-run preview.",
+  "next_action": "Optional external manual gate: install from the GitHub marketplace in a fresh Codex configuration and time the first-run preview. No automated repo work remains.",
   "handoff_rules": [
     "Read PLAN_public-plugin-onboarding.md before editing state.",
     "Update active_feature before starting a new feature.",

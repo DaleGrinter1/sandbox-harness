@@ -4,531 +4,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shlex
 import sys
-import tomllib
-from importlib import metadata
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
-from sandbox import Images, ModalAuthenticationError, Sandbox, SandboxReadinessProbe, SandboxVolume
+from sandbox import Sandbox, SandboxReadinessProbe, SandboxVolume
 
-SETUP_COMMANDS = [
-    "modal setup",
-    "python -m modal setup",
-    "modal token new",
-    "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment for non-interactive use.",
-]
+from . import schema as cli_schema
+from .auth import credential_status, modal_config_path, modal_setup_commands, verify_modal_token
+from .config import CONFIG_FILE_NAME, apply_config, config_metadata, load_config, provided_options
+from .errors import error_payload, error_type_for_exception
+from .preview import preview_payload
+from .resources import list_modal_apps, sandbox_apps, stop_modal_app
+from .schema import IMAGE_ALIASES, LIVE_MODAL_COMMANDS, QUICKSTART_COMMAND, RECOMMENDED_FIRST_COMMANDS, SETUP_COMMANDS
 
-CLI_SCHEMA_VERSION = "1"
-QUICKSTART_COMMAND = "python -c 'print(123)'"
-DEFAULT_ERROR_NEXT_STEPS = ["Run `sandbox doctor` to inspect local setup without creating Modal resources."]
 _USE_ARG_SANDBOX_ID = object()
-
-IMAGE_ALIASES = {
-    "py313": Images.PY313,
-    "python313": Images.PY313,
-    "python-313": Images.PY313,
-    "py312": Images.PY312,
-    "python312": Images.PY312,
-    "python-312": Images.PY312,
-    "py311": Images.PY311,
-    "python311": Images.PY311,
-    "python-311": Images.PY311,
-    "ubuntu24": Images.UBUNTU24,
-    "ubuntu-24": Images.UBUNTU24,
-}
-
-RECOMMENDED_FIRST_COMMANDS = [
-    {
-        "command": "sandbox dry",
-        "creates_modal_resources": False,
-        "purpose": "List safe discovery commands before taking action.",
-    },
-    {
-        "command": "sandbox schema",
-        "creates_modal_resources": False,
-        "purpose": "Inspect the CLI contract before taking action.",
-    },
-    {
-        "command": "sandbox doctor",
-        "creates_modal_resources": False,
-        "purpose": "Check local Modal package and credential readiness.",
-    },
-    {
-        "command": "sandbox quickstart",
-        "creates_modal_resources": False,
-        "purpose": "Preview the first live sandbox command.",
-    },
-    {
-        "command": "sandbox quickstart --run",
-        "creates_modal_resources": True,
-        "purpose": "Create a short-lived Modal Sandbox and run a tiny Python command.",
-    },
-]
-
-GOLDEN_WORKFLOWS = [
-    {
-        "id": "safe_first_run",
-        "purpose": "Inspect local readiness before creating Modal resources.",
-        "creates_modal_resources": False,
-        "commands": [
-            "sandbox dry",
-            "sandbox schema",
-            "sandbox doctor",
-            "sandbox quickstart",
-        ],
-        "success_signal": "quickstart reports ready_to_run or gives setup next steps.",
-    },
-    {
-        "id": "short_lived_command",
-        "purpose": "Create one short-lived sandbox and verify command execution.",
-        "creates_modal_resources": True,
-        "commands": [
-            "sandbox --image py313 quickstart --run",
-            "sandbox --image py313 run \"python -c 'print(123)'\"",
-        ],
-        "success_signal": "command JSON has exit_code 0 and expected stdout.",
-    },
-    {
-        "id": "persistent_workspace_files",
-        "purpose": "Preserve files across separate CLI calls using a Modal workspace volume.",
-        "creates_modal_resources": True,
-        "commands": [
-            'sandbox --image py313 --workspace-volume work write app.py --content "print(123)"',
-            'sandbox --image py313 --workspace-volume work run "python app.py"',
-            "sandbox --image py313 --workspace-volume work read app.py",
-            "sandbox --image py313 --workspace-volume work snapshot",
-            "sandbox --image py313 --workspace-volume work sync",
-        ],
-        "success_signal": "read returns the file content, snapshot names the workspace volume, and sync exits 0.",
-    },
-    {
-        "id": "long_lived_reuse",
-        "purpose": "Reuse one live sandbox for iterative work, then terminate it.",
-        "creates_modal_resources": True,
-        "commands": [
-            "sandbox --image py313 --name agent-workspace start",
-            'sandbox --sandbox-name agent-workspace write app.py --content "print(123)"',
-            'sandbox --sandbox-name agent-workspace run "python app.py"',
-            "sandbox --sandbox-name agent-workspace stop",
-        ],
-        "success_signal": "start returns sandbox_id and sandbox_name; stop returns status terminated.",
-    },
-]
-
-PATH_RULES = {
-    "relative_paths": "Resolved inside the sandbox workspace.",
-    "absolute_paths": "Used as absolute paths inside the sandbox.",
-    "workspace_escape": "Relative paths using '..' cannot escape the workspace.",
-}
-
-LIVE_MODAL_COMMANDS = [
-    "quickstart --run",
-    "start",
-    "stop",
-    "run",
-    "run-command",
-    "write",
-    "read",
-    "ls",
-    "mkdir",
-    "rm",
-    "upload",
-    "download",
-    "domain",
-    "wait-ready",
-    "snapshot",
-    "snapshot-filesystem",
-    "snapshot-directory",
-    "mount-image",
-    "unmount-image",
-    "stat",
-    "watch",
-    "sync",
-    "seed-git",
-    "seed-tarball",
-]
-
-COMMAND_RESULT_SCHEMA = {
-    "command": "string",
-    "stdout": "string",
-    "stderr": "string",
-    "exit_code": "integer|null",
-    "duration_ms": "integer",
-    "timed_out": "boolean",
-    "stdout_truncated": "boolean",
-    "stderr_truncated": "boolean",
-    "max_output_bytes": "integer|null",
-}
-
-AGENT_SKILLS = {
-    "public_plugin": {
-        "path": "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
-        "purpose": "End-user Codex workflow for safe discovery and authorized Modal Sandbox execution.",
-    },
-    "repo_understanding": {
-        "path": ".agents/skills/modal-sandbox-repo-understanding/SKILL.md",
-        "purpose": "Repo orientation, product boundaries, golden workflows, and planning state.",
-    },
-    "cli_workflows": {
-        "path": ".agents/skills/modal-sandbox-cli-workflows/SKILL.md",
-        "purpose": "Safe discovery, live Modal command choices, volume workflows, and JSON output interpretation.",
-    },
-    "package_maintenance": {
-        "path": ".agents/skills/modal-sandbox-package-maintenance/SKILL.md",
-        "purpose": "SDK, CLI, provider, docs, tests, packaging, and release-facing changes.",
-    },
-    "understanding_check": {
-        "path": ".agents/skills/modal-sandbox-understanding-check/SKILL.md",
-        "purpose": "Quiz or coach users on repo architecture, workflows, docs, and validation rules.",
-    },
-    "modal_upstream": {
-        "path": ".agents/skills/modal/SKILL.md",
-        "purpose": "Modal-owned SDK guidance when installed; repo-local skills remain source of truth for this package.",
-    },
-}
-
-COMMANDS_SCHEMA: dict[str, dict[str, Any]] = {
-    "start": {
-        "summary": "Create a Modal sandbox, print its ID, and leave it running.",
-        "creates_sandbox": True,
-        "arguments": {},
-        "options": {
-            "global creation options": "Supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, readiness probes, and timeout flags."
-        },
-        "output": {
-            "sandbox_id": "string",
-            "status": "started",
-            "ready": "boolean when --wait-ready is used",
-            "workspace": "string",
-            "sandbox_timeout": "integer",
-            "use_command": "string",
-            "stop_command": "string",
-        },
-        "example": "sandbox --image python:3.13-slim --name agent-workspace start",
-    },
-    "stop": {
-        "summary": "Terminate a running Modal sandbox by ID or name.",
-        "creates_sandbox": False,
-        "arguments": {"sandbox_id": "Modal sandbox object ID. Can also be passed with --sandbox-id."},
-        "options": {"global --sandbox-name": "Terminate a running named sandbox."},
-        "output": {"sandbox_id": "string|null", "sandbox_name": "string|null", "status": "terminated"},
-        "example": "sandbox stop sb-abc123",
-    },
-    "run": {
-        "summary": "Run a shell command inside a Modal sandbox.",
-        "creates_sandbox": True,
-        "arguments": {"command": "Shell command string to run."},
-        "options": {
-            "--cwd": "Working directory inside the sandbox. Relative paths resolve inside the workspace.",
-            "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
-            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
-        },
-        "output": COMMAND_RESULT_SCHEMA,
-        "example": "sandbox --image python:3.13-slim run \"python -c 'print(123)'\"",
-    },
-    "run-command": {
-        "summary": "Run an argv-style command without shell wrapping.",
-        "creates_sandbox": True,
-        "arguments": {
-            "cmd": "Executable to run.",
-            "args": "Arguments passed to the executable without shell parsing.",
-        },
-        "options": {
-            "--cwd": "Working directory inside the sandbox. Relative paths resolve inside the workspace.",
-            "--env KEY=VALUE": "Per-command environment variable. Repeatable.",
-            "--use-command-exit-code": "Return the sandbox command exit code as the CLI exit code.",
-            "global --max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Use 0 to capture no bytes.",
-        },
-        "output": COMMAND_RESULT_SCHEMA,
-        "example": "sandbox --runtime python3.13 run-command python -c 'print(123)'",
-    },
-    "write": {
-        "summary": "Write a file inside the sandbox workspace.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {
-            "--content": "Inline UTF-8 text content to write.",
-            "--content-file": "Local UTF-8 text file to read and write.",
-            "--stdin": "Read UTF-8 text from standard input.",
-            "--binary-file": "Local binary file to read and write as bytes.",
-            "--binary-stdin": "Read raw bytes from standard input and write as binary.",
-        },
-        "output": {"path": "string", "status": "wrote"},
-        "example": 'sandbox --workspace-volume work write hello.py --content "print(123)"',
-    },
-    "read": {
-        "summary": "Read UTF-8 text from a file inside the sandbox workspace.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {},
-        "output": {"path": "string", "content": "string"},
-        "example": "sandbox --workspace-volume work read hello.py",
-    },
-    "ls": {
-        "summary": "List direct children of a sandbox directory.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Directory path. Defaults to '.'."},
-        "options": {},
-        "output": {"path": "string", "files": "string[]"},
-        "example": "sandbox --workspace-volume work ls .",
-    },
-    "mkdir": {
-        "summary": "Create a directory inside the sandbox workspace.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {"--no-parents": "Do not create missing parent directories."},
-        "output": {"path": "string", "parents": "boolean", "status": "created"},
-        "example": "sandbox --workspace-volume work mkdir notes",
-    },
-    "rm": {
-        "summary": "Remove a file or directory inside the sandbox workspace.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {"--recursive": "Remove directories recursively."},
-        "output": {"path": "string", "recursive": "boolean", "status": "removed"},
-        "example": "sandbox --workspace-volume work rm notes --recursive",
-    },
-    "upload": {
-        "summary": "Copy a local file or directory into the sandbox.",
-        "creates_sandbox": True,
-        "arguments": {
-            "local_path": "Path on the local machine.",
-            "remote_path": "Relative workspace path or absolute sandbox path.",
-        },
-        "options": {},
-        "output": {"local_path": "string", "remote_path": "string", "status": "uploaded"},
-        "example": "sandbox --workspace-volume work upload input.txt input.txt",
-    },
-    "download": {
-        "summary": "Copy a sandbox file or directory to the local machine.",
-        "creates_sandbox": True,
-        "arguments": {
-            "remote_path": "Relative workspace path or absolute sandbox path.",
-            "local_path": "Destination path on the local machine.",
-        },
-        "options": {},
-        "output": {"local_path": "string", "remote_path": "string", "status": "downloaded"},
-        "example": "sandbox --workspace-volume work download output.txt output.txt",
-    },
-    "domain": {
-        "summary": "Print the public URL for a declared sandbox port.",
-        "creates_sandbox": True,
-        "arguments": {"port": "Port declared with --encrypted-port or --unencrypted-port at sandbox creation."},
-        "options": {"requires --sandbox-id or --sandbox-name": "Attach to a sandbox created with a declared port."},
-        "output": {"port": "integer", "url": "string"},
-        "example": "sandbox --sandbox-id sb-abc123 domain 3000",
-    },
-    "wait-ready": {
-        "summary": "Wait for an existing sandbox readiness probe to report ready.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {
-            "requires --sandbox-id or --sandbox-name": "Attach to a sandbox that was created with a readiness probe.",
-            "--timeout": "Maximum seconds to wait for readiness.",
-        },
-        "output": {"sandbox_id": "string|null", "sandbox_name": "string|null", "status": "ready", "timeout": "integer"},
-        "example": "sandbox --sandbox-id sb-abc123 wait-ready --timeout 60",
-    },
-    "snapshot": {
-        "summary": "Create a volume-backed workspace snapshot checkpoint.",
-        "creates_sandbox": True,
-        "arguments": {},
-        "options": {"requires --workspace-volume": "Snapshot checkpoints are backed by the workspace Modal volume."},
-        "output": {"name": "string", "kind": "modal_volume", "workspace": "string", "status": "created"},
-        "example": "sandbox --workspace-volume work snapshot",
-    },
-    "snapshot-filesystem": {
-        "summary": "Create a Modal-native filesystem image snapshot.",
-        "creates_sandbox": True,
-        "arguments": {},
-        "options": {
-            "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
-            "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry.",
-            "--no-ttl": "Keep the snapshot indefinitely.",
-        },
-        "output": {"image_id": "string", "kind": "modal_filesystem", "path": "null", "ttl_seconds": "integer|null"},
-        "example": "sandbox snapshot-filesystem --ttl 604800",
-    },
-    "snapshot-directory": {
-        "summary": "Create a Modal-native directory image snapshot.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {
-            "--timeout": "Maximum seconds to wait for Modal snapshot creation.",
-            "--ttl": "Snapshot TTL in seconds. Use --no-ttl for no expiry.",
-            "--no-ttl": "Keep the snapshot indefinitely.",
-        },
-        "output": {"image_id": "string", "kind": "modal_directory", "path": "string", "ttl_seconds": "integer|null"},
-        "example": "sandbox snapshot-directory . --ttl 604800",
-    },
-    "mount-image": {
-        "summary": "Mount a Modal image snapshot inside the sandbox.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Mount path inside the sandbox.", "image_id": "Modal image object ID."},
-        "options": {},
-        "output": {"path": "string", "image_id": "string", "status": "mounted"},
-        "example": "sandbox --sandbox-id sb-abc123 mount-image project im-abc123",
-    },
-    "unmount-image": {
-        "summary": "Unmount a Modal image snapshot from the sandbox.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Mount path inside the sandbox."},
-        "options": {},
-        "output": {"path": "string", "status": "unmounted"},
-        "example": "sandbox --sandbox-id sb-abc123 unmount-image project",
-    },
-    "stat": {
-        "summary": "Return metadata for a sandbox filesystem path.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {},
-        "output": {
-            "path": "string",
-            "kind": "string",
-            "size": "integer|null",
-            "permissions": "string|null",
-            "modified_time": "string|null",
-        },
-        "example": "sandbox --workspace-volume work stat app.py",
-    },
-    "watch": {
-        "summary": "Watch a sandbox path for filesystem changes and return bounded JSON events.",
-        "creates_sandbox": True,
-        "arguments": {"path": "Relative workspace path or absolute sandbox path."},
-        "options": {
-            "--timeout": "Required timeout in seconds. The CLI consumes events until the timeout elapses.",
-            "--recursive": "Watch nested subdirectories.",
-            "--event TYPE": "Event type filter. Repeatable.",
-        },
-        "output": {"path": "string", "events": "object[]", "recursive": "boolean", "timeout": "integer"},
-        "example": "sandbox --sandbox-id sb-abc123 watch . --timeout 5",
-    },
-    "sync": {
-        "summary": "Persist workspace-volume changes without waiting for sandbox termination.",
-        "creates_sandbox": True,
-        "arguments": {},
-        "options": {"requires --workspace-volume": "Workspace sync requires a named workspace Modal volume."},
-        "output": COMMAND_RESULT_SCHEMA,
-        "example": "sandbox --workspace-volume work sync",
-    },
-    "seed-git": {
-        "summary": "Clone a public Git repository into the sandbox.",
-        "creates_sandbox": True,
-        "arguments": {"url": "Public HTTP(S) Git repository URL."},
-        "options": {
-            "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
-            "--ref REF": "Optional branch or tag.",
-            "--depth N": "Clone depth. Use 0 for a full clone.",
-        },
-        "output": COMMAND_RESULT_SCHEMA,
-        "example": "sandbox --workspace-volume work seed-git https://github.com/org/repo.git --dest .",
-    },
-    "seed-tarball": {
-        "summary": "Download and extract a public tarball into the sandbox.",
-        "creates_sandbox": True,
-        "arguments": {"url": "Public HTTP(S) tarball URL."},
-        "options": {
-            "--dest PATH": "Destination path inside the sandbox. Defaults to the workspace.",
-            "--strip-components N": "Leading archive path components to remove.",
-        },
-        "output": COMMAND_RESULT_SCHEMA,
-        "example": "sandbox --workspace-volume work seed-tarball https://example.com/source.tar.gz",
-    },
-    "dry": {
-        "summary": "List safe discovery commands that do not create Modal resources.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {"global --dry": "Alias for this command when no subcommand is provided."},
-        "output": {
-            "status": "string",
-            "creates_modal_resources": "false",
-            "dry_commands": "string[]",
-            "safe_commands": "string[]",
-            "recommended_next_command": "string",
-            "live_command": "string",
-            "checks": "object",
-            "next_steps": "string[]",
-        },
-        "example": "sandbox dry",
-    },
-    "schema": {
-        "summary": "Print this machine-readable CLI schema.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {"--agent": "Print a compact agent manifest instead of the full CLI schema."},
-        "output": {"schema_version": "string", "commands": "object"},
-        "example": "sandbox schema",
-    },
-    "auth": {
-        "summary": "Write Modal credentials to ~/.modal.toml for non-interactive use.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {
-            "--token-id": "Modal token ID (required). Obtain from https://modal.com/settings/tokens.",
-            "--token-secret": "Modal token secret (required).",
-            "--profile": "Modal config profile to write (default: 'default').",
-            "--force": "Overwrite an existing profile entry.",
-        },
-        "output": {
-            "status": "configured",
-            "profile": "string",
-            "config_path": "string",
-            "creates_modal_resources": "false",
-        },
-        "example": "sandbox auth --token-id ak-... --token-secret as-...",
-    },
-    "doctor": {
-        "summary": "Inspect local Modal package and credential setup, with beginner next steps.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {},
-        "output": {
-            "ready": "boolean",
-            "status": "string",
-            "problems": "string[]",
-            "next_steps": "string[]",
-            "recommended_commands": "object[]",
-            "modal_package": "object",
-            "credentials": "object",
-            "setup_commands": "string[]",
-            "creates_modal_resources": "false",
-            "summary": "object",
-        },
-        "example": "sandbox doctor",
-    },
-    "quickstart": {
-        "summary": "Preview or run the first beginner sandbox command.",
-        "creates_sandbox": False,
-        "arguments": {},
-        "options": {
-            "--run": "Create a short-lived Modal Sandbox and run the quickstart Python command.",
-            "global creation options": "With --run, supports --name, --tag, --image, --runtime, --workspace, --workspace-volume, --volume, --env, network policy, resources, ports, and timeout flags.",
-        },
-        "output": {
-            "creates_modal_resources": "boolean",
-            "status": "string",
-            "checks": "object",
-            "safe_commands": "string[]",
-            "live_command": "string",
-            "quickstart_command": "string",
-            "command": "string when --run is used",
-            "stdout": "string when --run is used",
-            "stderr": "string when --run is used",
-            "exit_code": "integer|null when --run is used",
-            "duration_ms": "integer when --run is used",
-            "timed_out": "boolean when --run is used",
-            "stdout_truncated": "boolean when --run is used",
-            "stderr_truncated": "boolean when --run is used",
-            "max_output_bytes": "integer|null when --run is used",
-            "quickstart": "object when --run is used",
-        },
-        "example": "sandbox quickstart --run",
-    },
-}
 
 
 def _parse_env(values: list[str]) -> dict[str, str]:
@@ -818,28 +310,6 @@ def _print_json(payload: Any, *, file: Any = None) -> None:
     print(json.dumps(payload, indent=2), file=file or sys.stdout)
 
 
-def _error_payload(error_type: str, message: str, exit_code: int) -> dict[str, object]:
-    """Build the standard JSON error envelope.
-
-    Args:
-        error_type: Stable machine-readable error category.
-        message: Human-readable error detail.
-        exit_code: Process exit code that will be used.
-
-    Returns:
-        JSON-serializable error payload.
-    """
-    return {
-        "status": "error",
-        "error": {
-            "type": error_type,
-            "message": message,
-            "exit_code": exit_code,
-            "next_steps": DEFAULT_ERROR_NEXT_STEPS,
-        },
-    }
-
-
 def _exit_with_error(parser: argparse.ArgumentParser, error_type: str, message: str, exit_code: int) -> NoReturn:
     """Print a JSON error envelope and terminate argparse.
 
@@ -852,7 +322,7 @@ def _exit_with_error(parser: argparse.ArgumentParser, error_type: str, message: 
     Raises:
         SystemExit: Always raised by `parser.exit`.
     """
-    _print_json(_error_payload(error_type, message, exit_code), file=sys.stderr)
+    _print_json(error_payload(error_type, message, exit_code), file=sys.stderr)
     parser.exit(exit_code)
 
 
@@ -987,15 +457,37 @@ def _command_exit_code(result: Any) -> int:
 
 
 def _package_version() -> str:
-    """Return the installed package version used by CLI metadata.
+    """Return the installed package version used by CLI metadata."""
+    return cli_schema.package_version()
 
-    Returns:
-        Installed distribution version, or the local development fallback.
-    """
-    try:
-        return metadata.version("modal-sandbox-sdk")
-    except metadata.PackageNotFoundError:
-        return "dev"
+
+def _safe_quickstart_commands() -> list[str]:
+    """Return recommended commands that do not create Modal resources."""
+    return cli_schema.safe_quickstart_commands()
+
+
+def _live_quickstart_command() -> str:
+    """Return the first live Modal verification command."""
+    return cli_schema.live_quickstart_command()
+
+
+def _dry_command_names() -> list[str]:
+    """Return dry command names that never create Modal resources."""
+    return cli_schema.dry_command_names()
+
+
+def _schema_payload() -> dict[str, object]:
+    """Build the machine-readable CLI contract."""
+    payload = cli_schema.schema_payload()
+    payload["version"] = _package_version()
+    return payload
+
+
+def _agent_manifest_payload() -> dict[str, object]:
+    """Build a compact low-token manifest for coding agents."""
+    payload = cli_schema.agent_manifest_payload()
+    payload["version"] = _package_version()
+    return payload
 
 
 def _modal_package_info() -> dict[str, object]:
@@ -1014,48 +506,7 @@ def _modal_package_info() -> dict[str, object]:
 
 def _modal_config_path() -> Path:
     """Return the default Modal config path checked by `doctor`."""
-    return Path.home() / ".modal.toml"
-
-
-def _write_modal_toml(config_path: Path, profile: str, token_id: str, token_secret: str, *, force: bool) -> None:
-    """Write a Modal credential profile to the toml config file.
-
-    Reads any existing profiles first so other sections are preserved.
-    Non-string values already in the file are written back with repr().
-
-    Args:
-        config_path: Modal config path to create or update.
-        profile: Profile section name to write.
-        token_id: Modal token ID.
-        token_secret: Modal token secret.
-        force: Whether to overwrite an existing profile.
-
-    Raises:
-        ValueError: When the profile already exists and force is False.
-    """
-    existing: dict[str, dict[str, object]] = {}
-    if config_path.exists():
-        with config_path.open("rb") as f:
-            existing = tomllib.load(f)
-
-    if profile in existing and not force:
-        raise ValueError(f"Profile {profile!r} already exists in {config_path}. Use --force to overwrite.")
-
-    if profile in existing:
-        existing[profile]["token_id"] = token_id
-        existing[profile]["token_secret"] = token_secret
-    else:
-        existing[profile] = {"token_id": token_id, "token_secret": token_secret}
-
-    lines: list[str] = []
-    for section, values in existing.items():
-        lines.append(f"[{section}]")
-        for key, val in values.items():
-            lines.append(f'{key} = "{val}"' if isinstance(val, str) else f"{key} = {val!r}")
-        lines.append("")
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text("\n".join(lines), encoding="utf-8")
+    return modal_config_path()
 
 
 def _credential_status() -> dict[str, object]:
@@ -1065,35 +516,7 @@ def _credential_status() -> dict[str, object]:
         JSON-serializable credential status from environment and config file
         presence.
     """
-    env_has_id = bool(os.environ.get("MODAL_TOKEN_ID"))
-    env_has_secret = bool(os.environ.get("MODAL_TOKEN_SECRET"))
-    config_path = _modal_config_path()
-    config_exists = config_path.exists()
-    has_complete_env = env_has_id and env_has_secret
-
-    if has_complete_env:
-        status = "configured_from_environment"
-    elif env_has_id or env_has_secret:
-        status = "partial_environment"
-    elif config_exists:
-        status = "configured_from_modal_toml"
-    else:
-        status = "missing_or_unknown"
-
-    return {
-        "status": status,
-        "authenticated": status in {"configured_from_environment", "configured_from_modal_toml"},
-        "environment": {
-            "modal_token_id_set": env_has_id,
-            "modal_token_secret_set": env_has_secret,
-            "environment_vars_set": has_complete_env,
-        },
-        "modal_toml": {
-            "path": str(config_path),
-            "exists": config_exists,
-        },
-        "modal_profile": os.environ.get("MODAL_PROFILE"),
-    }
+    return credential_status(_modal_config_path())
 
 
 def _recommended_setup_command() -> str:
@@ -1121,7 +544,7 @@ def _readiness(modal_package: dict[str, object], credentials: dict[str, object])
     if credentials["status"] == "partial_environment":
         problems.append("modal_credentials_partial_environment")
         next_steps.append("Set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or run `uv run modal setup`.")
-    elif credentials["status"] == "missing_or_unknown":
+    elif not credentials["complete"]:
         problems.append("modal_credentials_missing")
         next_steps.append(f"Run `{_recommended_setup_command()}` before creating a live sandbox.")
 
@@ -1134,171 +557,6 @@ def _readiness(modal_package: dict[str, object], credentials: dict[str, object])
         "status": "ready" if ready else "needs_setup",
         "problems": problems,
         "next_steps": next_steps,
-    }
-
-
-def _safe_quickstart_commands() -> list[str]:
-    """Return recommended commands that do not create Modal resources."""
-    return [command["command"] for command in RECOMMENDED_FIRST_COMMANDS if command["creates_modal_resources"] is False]
-
-
-def _live_quickstart_command() -> str:
-    """Return the first live Modal verification command."""
-    return "sandbox quickstart --run"
-
-
-def _dry_command_names() -> list[str]:
-    """Return dry command names that never create Modal resources."""
-    return ["dry", "schema", "doctor", "quickstart"]
-
-
-def _schema_payload() -> dict[str, object]:
-    """Build the machine-readable CLI contract.
-
-    Returns:
-        JSON-serializable schema containing command metadata, lifecycle notes,
-        auth guidance, image aliases, and golden workflows.
-    """
-    return {
-        "name": "sandbox",
-        "package": "modal-sandbox-sdk",
-        "version": _package_version(),
-        "schema_version": CLI_SCHEMA_VERSION,
-        "description": "CLI for running commands and file workflows inside Modal Sandboxes.",
-        "default_output": "json",
-        "global_options": {
-            "--app-name": "Modal app name used for sandbox creation.",
-            "--name": "Name assigned to a newly created sandbox. Unique within the app while running.",
-            "--tag KEY=VALUE": "Tag assigned to a newly created sandbox. Repeatable.",
-            "--workspace": "Default sandbox directory for relative paths.",
-            "--image": "Registry image tag or supported alias passed to Modal.",
-            "--runtime": "Vercel-style runtime alias. Supported values: python3.13, node24, node22.",
-            "--workspace-volume": "Modal volume name mounted at the workspace path.",
-            "--volume NAME:/mount": "Modal volume name and absolute sandbox mount path. Repeatable.",
-            "--env KEY=VALUE": "Environment variable passed to the sandbox. Repeatable.",
-            "--timeout": "Command timeout in seconds for run.",
-            "--sandbox-timeout": "Modal sandbox lifetime timeout in seconds.",
-            "--cpu": "CPU request passed through to Modal.",
-            "--memory": "Memory request in MiB passed through to Modal.",
-            "--gpu": "GPU request passed through to Modal.",
-            "--region": "Region preference passed through to Modal.",
-            "--block-network": "Block outbound network access from the sandbox.",
-            "--allow-domain DOMAIN": "Allow sandbox outbound network access to a domain. Repeatable.",
-            "--allow-cidr CIDR": "Allow sandbox outbound network access to a CIDR range. Repeatable.",
-            "--allow-inbound-cidr CIDR": "Allow inbound tunnel/connect-token access from a CIDR range. Repeatable.",
-            "--sandbox-id": "Attach to an existing Modal sandbox by ID instead of creating one.",
-            "--sandbox-name": "Attach to an existing running Modal sandbox by name instead of creating one.",
-            "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
-            "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
-            "--unencrypted-port": "Expose a TCP Modal tunnel for the given port. Repeatable.",
-            "--readiness-tcp PORT": "Create a sandbox with a Modal TCP readiness probe.",
-            "--readiness-exec COMMAND": "Create a sandbox with a Modal exec readiness probe parsed into argv.",
-            "--readiness-interval-ms": "Readiness probe polling interval in milliseconds. Defaults to 100.",
-            "--wait-ready": "Wait for readiness before running an operational command.",
-            "--ready-timeout": "Maximum seconds to wait when --wait-ready is used. Defaults to 300.",
-        },
-        "path_rules": PATH_RULES,
-        "lifecycle": {
-            "creates_or_attaches_per_command": True,
-            "dry_commands": _dry_command_names(),
-            "safe_discovery_commands": _dry_command_names(),
-            "live_modal_commands": LIVE_MODAL_COMMANDS,
-            "long_lived_cli_workflow": "Use start to create a sandbox, --sandbox-id to reuse it, and stop to terminate it.",
-            "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
-            "created_sandboxes_close_behavior": "terminate",
-            "attached_sandboxes_close_behavior": "detach",
-            "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
-            "volume_mounts": "Use --volume NAME:/mount to mount additional Modal volumes at absolute sandbox paths.",
-            "domain_allowlist": "Use --allow-domain DOMAIN to restrict sandbox outbound network access to listed domains.",
-            "cidr_allowlists": "Use --allow-cidr CIDR for outbound IP ranges and --allow-inbound-cidr CIDR for inbound tunnel/connect-token ranges.",
-            "preflight_validation": "Invalid lifecycle combinations and global configuration are rejected before sandbox creation.",
-        },
-        "auth": {
-            "requires_modal_credentials": True,
-            "setup_commands": SETUP_COMMANDS,
-            "environment_variables": ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "MODAL_PROFILE"],
-            "token_acquisition": {
-                "url": "https://modal.com/settings/tokens",
-                "description": (
-                    "Create a token at the Modal dashboard, then set MODAL_TOKEN_ID and "
-                    "MODAL_TOKEN_SECRET for non-interactive use, or run "
-                    "`sandbox auth --token-id ID --token-secret SECRET` to write ~/.modal.toml."
-                ),
-                "non_interactive_command": "sandbox auth --token-id YOUR_TOKEN_ID --token-secret YOUR_TOKEN_SECRET",
-            },
-        },
-        "image_aliases": IMAGE_ALIASES,
-        "recommended_first_commands": RECOMMENDED_FIRST_COMMANDS,
-        "golden_workflows": GOLDEN_WORKFLOWS,
-        "commands": COMMANDS_SCHEMA,
-    }
-
-
-def _agent_manifest_payload() -> dict[str, object]:
-    """Build a compact low-token manifest for coding agents.
-
-    Returns:
-        JSON-serializable agent orientation data. This intentionally omits the
-        full command schema; agents can call `sandbox schema` when they need
-        command-level detail.
-    """
-    return {
-        "name": "sandbox-agent-manifest",
-        "package": "modal-sandbox-sdk",
-        "version": _package_version(),
-        "schema_version": CLI_SCHEMA_VERSION,
-        "description": "Low-token orientation manifest for the modal-sandbox plugin and its SDK/CLI engine.",
-        "product_boundary": [
-            "Codex plugin and end-user skill backed by a small Python SDK and JSON-first CLI.",
-            "The plugin requires the installed sandbox CLI and does not duplicate it or add MCP.",
-            "Not a generic sandbox platform or replacement for Modal's full SDK.",
-            "Keep Modal imported lazily and default validation resource-free.",
-        ],
-        "read_order": [
-            "AGENTS.md",
-            "ARCHITECTURE.md",
-            "docs/PRODUCT_SENSE.md",
-            "docs/references/cli.md",
-            "docs/exec-plans/index.md",
-        ],
-        "skills": AGENT_SKILLS,
-        "safe_discovery": {
-            "creates_modal_resources": False,
-            "commands": [
-                "sandbox dry",
-                "sandbox schema --agent",
-                "sandbox schema",
-                "sandbox doctor",
-                "sandbox quickstart",
-            ],
-        },
-        "live_modal": {
-            "requires_explicit_user_request": True,
-            "opt_in_test_command": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
-            "commands": LIVE_MODAL_COMMANDS,
-        },
-        "golden_workflows": GOLDEN_WORKFLOWS,
-        "path_rules": PATH_RULES,
-        "validation": {
-            "quick_no_resource": "./scripts/dev/quickstart.sh",
-            "full_no_resource": "./scripts/dev/check.sh",
-            "schema_codegen": "./scripts/dev/schema.sh",
-            "exec_plan_state": "./scripts/execplan/check.sh",
-            "live_modal": "MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh",
-        },
-        "planning": {
-            "index": "docs/exec-plans/index.md",
-            "active_plan_rule": "If active initiatives exist, read their PLAN file and JSON/JSONL state before editing.",
-            "completed_plan_rule": "Do not read completed plan state unless doing archaeology or release retrospective work.",
-        },
-        "docs": {
-            "agent_notes": "docs/references/agents.md",
-            "new_agent_prompt": "docs/references/new-agent-prompt.md",
-            "cli_reference": "docs/references/cli.md",
-            "quality": "docs/QUALITY_SCORE.md",
-            "reliability": "docs/RELIABILITY.md",
-            "security": "docs/SECURITY.md",
-        },
     }
 
 
@@ -1324,7 +582,86 @@ def _dry_payload() -> dict[str, object]:
     }
 
 
-def _doctor_payload() -> dict[str, object]:
+def _status_payload(args: argparse.Namespace) -> dict[str, object]:
+    """Build read-only Modal app status metadata."""
+    result = list_modal_apps(environment=args.modal_environment, timeout=args.status_timeout)
+    apps = result.get("apps", [])
+    filtered = sandbox_apps(cast(list[dict[str, object]], apps), app_name=args.app_name)
+    selected = filtered if args.all else [app for app in filtered if app.get("name") == args.app_name]
+    return {
+        "status": "ok" if result["ok"] else "error",
+        "creates_modal_resources": False,
+        "contacts_modal": True,
+        "app_name": args.app_name,
+        "environment": args.modal_environment,
+        "apps": selected,
+        "all_sandbox_apps": filtered if args.all else None,
+        "summary": {
+            "visible_apps": len(selected),
+            "sandbox_apps": len(filtered),
+            "next_cleanup_command": f"sandbox cleanup --app {args.app_name} --yes" if selected else None,
+        },
+        "error": result.get("error"),
+    }
+
+
+def _cleanup_payload(args: argparse.Namespace) -> dict[str, object]:
+    """Build or execute explicit Modal app cleanup."""
+    targets: list[str] = []
+    if args.app:
+        targets.append(args.app)
+    if args.all_sandbox_apps:
+        status = list_modal_apps(environment=args.modal_environment, timeout=args.status_timeout)
+        if not status.get("ok"):
+            return {
+                "status": "error",
+                "creates_modal_resources": False,
+                "contacts_modal": True,
+                "stops_modal_resources": False,
+                "targets": [],
+                "error": status.get("error"),
+            }
+        targets.extend(
+            str(app.get("app_id") or app.get("name"))
+            for app in sandbox_apps(cast(list[dict[str, object]], status.get("apps", [])), app_name=args.app_name)
+            if app.get("app_id") or app.get("name")
+        )
+    targets = sorted(set(targets))
+
+    if not targets:
+        return {
+            "status": "nothing_selected",
+            "creates_modal_resources": False,
+            "contacts_modal": bool(args.all_sandbox_apps),
+            "stops_modal_resources": False,
+            "targets": [],
+            "next_steps": ["Pass --app APP_ID_OR_NAME --yes, or --all-sandbox-apps --yes."],
+        }
+
+    if not args.yes:
+        return {
+            "status": "dry_run",
+            "creates_modal_resources": False,
+            "contacts_modal": bool(args.all_sandbox_apps),
+            "stops_modal_resources": False,
+            "targets": targets,
+            "next_steps": ["Rerun with --yes to stop the listed Modal apps."],
+        }
+
+    stopped = [
+        stop_modal_app(target, environment=args.modal_environment, timeout=args.status_timeout) for target in targets
+    ]
+    return {
+        "status": "stopped" if all(item["ok"] for item in stopped) else "partial_failure",
+        "creates_modal_resources": False,
+        "contacts_modal": True,
+        "stops_modal_resources": True,
+        "targets": targets,
+        "results": stopped,
+    }
+
+
+def _doctor_payload(*, verify: bool = False) -> dict[str, object]:
     """Build local Modal readiness diagnostics without creating resources.
 
     Returns:
@@ -1332,9 +669,13 @@ def _doctor_payload() -> dict[str, object]:
     """
     modal_package = _modal_package_info()
     credentials = _credential_status()
+    verification = None
+    if verify:
+        verification = verify_modal_token(command=(sys.executable, "-m", "modal", "token", "info"))
+        credentials = {**credentials, **verification}
     readiness = _readiness(modal_package, credentials)
     recommended_commands = [*RECOMMENDED_FIRST_COMMANDS]
-    if credentials["status"] in {"missing_or_unknown", "partial_environment"}:
+    if not credentials["complete"]:
         recommended_commands.append(
             {
                 "command": _recommended_setup_command(),
@@ -1346,15 +687,19 @@ def _doctor_payload() -> dict[str, object]:
         ready_hint = (
             "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
         )
-    elif credentials["status"] == "missing_or_unknown":
-        ready_hint = "Modal credentials were not found. Run modal setup before creating a sandbox."
+    elif not credentials["complete"]:
+        ready_hint = "Complete Modal credentials were not found. Run modal setup before creating a sandbox."
+    elif verify and not credentials["verified"]:
+        ready_hint = "Modal credentials are complete locally, but verification failed."
+    elif verify:
+        ready_hint = "Modal credentials are complete locally and verified by Modal."
     else:
-        ready_hint = "Modal credentials appear to be configured."
+        ready_hint = "Modal credentials are complete locally. Run `sandbox doctor --verify` to verify them with Modal."
 
     if readiness["ready"]:
         summary = {
             "ready": True,
-            "message": "Modal is configured. You can run a live sandbox quickstart.",
+            "message": ready_hint,
             "next_command": "sandbox quickstart --run",
         }
     else:
@@ -1374,6 +719,8 @@ def _doctor_payload() -> dict[str, object]:
         "ready_hint": ready_hint,
         "recommended_commands": recommended_commands,
         "setup_commands": SETUP_COMMANDS,
+        "auth_setup_commands": modal_setup_commands(),
+        "verification": verification,
         "creates_modal_resources": False,
         "next_safe_command": "sandbox quickstart",
         "summary": summary,
@@ -1439,6 +786,8 @@ def build_parser() -> argparse.ArgumentParser:
     # These flags intentionally mirror the ergonomic SDK creation options so
     # shell usage and Python usage teach the same mental model.
     parser.add_argument("--app-name", default="modal-sandbox-sdk")
+    parser.add_argument("--config", default=CONFIG_FILE_NAME, help="Project sandbox TOML config path.")
+    parser.add_argument("--no-config", action="store_true", help="Ignore project sandbox config.")
     parser.add_argument("--name", type=_sandbox_name, help="Name for a newly created sandbox.")
     parser.add_argument("--tag", type=_parse_tag, action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--workspace", type=_absolute_sandbox_path, default="/workspace")
@@ -1499,6 +848,20 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command_name", parser_class=JsonArgumentParser)
 
     subparsers.add_parser("start", help="Create a sandbox, print its ID, and leave it running.")
+
+    status_parser = subparsers.add_parser("status", help="List Modal apps for this sandbox project.")
+    status_parser.add_argument("--all", action="store_true", help="Show all apps that look owned by modal-sandbox.")
+    status_parser.add_argument("--modal-environment", help="Modal environment passed to `modal app list`.")
+    status_parser.add_argument("--timeout", type=_positive_int, default=30, dest="status_timeout")
+
+    cleanup_parser = subparsers.add_parser("cleanup", help="Preview or stop selected Modal sandbox apps.")
+    cleanup_parser.add_argument("--app", help="Modal app ID or name to stop.")
+    cleanup_parser.add_argument(
+        "--all-sandbox-apps", action="store_true", help="Target every visible modal-sandbox app."
+    )
+    cleanup_parser.add_argument("--modal-environment", help="Modal environment passed to Modal app commands.")
+    cleanup_parser.add_argument("--timeout", type=_positive_int, default=60, dest="status_timeout")
+    cleanup_parser.add_argument("--yes", action="store_true", help="Actually stop selected Modal apps.")
 
     stop_parser = subparsers.add_parser("stop", help="Terminate a running sandbox by ID.")
     stop_parser.add_argument("target_sandbox_id", nargs="?")
@@ -1618,12 +981,16 @@ def build_parser() -> argparse.ArgumentParser:
     seed_tarball_parser.add_argument("--strip-components", type=_non_negative_int, default=1)
 
     auth_parser = subparsers.add_parser(
-        "auth", help="Write Modal credentials to ~/.modal.toml for non-interactive use."
+        "auth", help="Print supported Modal authentication commands without accepting secrets."
     )
-    auth_parser.add_argument("--token-id", required=True, dest="token_id", help="Modal token ID.")
-    auth_parser.add_argument("--token-secret", required=True, dest="token_secret", help="Modal token secret.")
-    auth_parser.add_argument("--profile", default="default", help="Modal config profile to write (default: 'default').")
-    auth_parser.add_argument("--force", action="store_true", help="Overwrite an existing profile entry.")
+    auth_parser.add_argument("--token-id", dest="token_id", help=argparse.SUPPRESS)
+    auth_parser.add_argument("--token-secret", dest="token_secret", help=argparse.SUPPRESS)
+    auth_parser.add_argument("--profile", default="default", help=argparse.SUPPRESS)
+    auth_parser.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+
+    preview_parser = subparsers.add_parser("preview", help="Preview resolved live behavior without creating resources.")
+    preview_parser.add_argument("preview_command_name", choices=LIVE_MODAL_COMMANDS)
+    preview_parser.add_argument("preview_args", nargs=argparse.REMAINDER)
 
     subparsers.add_parser("dry", help="List safe discovery commands that do not create Modal resources.")
 
@@ -1634,7 +1001,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print a compact low-token agent manifest instead of the full CLI schema.",
     )
 
-    subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
+    doctor_parser = subparsers.add_parser("doctor", help="Inspect local Modal setup without creating a sandbox.")
+    doctor_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run `modal token info` to verify credentials without creating sandbox resources.",
+    )
 
     quickstart_parser = subparsers.add_parser("quickstart", help="Preview or run the beginner quickstart.")
     quickstart_parser.add_argument(
@@ -1861,6 +1233,18 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+    explicit_options = provided_options(argv)
+
+    if not args.no_config:
+        try:
+            config, config_path = load_config(Path(args.config))
+            args = apply_config(args, config, explicit_options)
+            args.config_path_loaded = config_path
+        except argparse.ArgumentTypeError as exc:
+            _exit_with_error(parser, "argument_error", str(exc), 2)
+    else:
+        args.config_loaded = False
+        args.config_path_loaded = None
 
     if args.dry:
         if args.command_name is not None:
@@ -1873,32 +1257,48 @@ def main(argv: list[str] | None = None) -> int:
     _preflight_args(args, parser)
 
     if args.command_name == "dry":
-        _print_json(_dry_payload())
+        payload = _dry_payload()
+        payload["config"] = config_metadata(args)
+        _print_json(payload)
         return 0
     if args.command_name == "schema":
         _print_json(_agent_manifest_payload() if args.agent else _schema_payload())
         return 0
     if args.command_name == "doctor":
-        _print_json(_doctor_payload())
+        _print_json(_doctor_payload(verify=args.verify))
+        return 0
+    if args.command_name == "status":
+        _print_json(_status_payload(args))
+        return 0
+    if args.command_name == "cleanup":
+        _print_json(_cleanup_payload(args))
         return 0
     if args.command_name == "quickstart" and not args.run:
         _print_json(_quickstart_payload(creates_modal_resources=False))
         return 0
 
     if args.command_name == "auth":
-        config_path = _modal_config_path()
-        try:
-            _write_modal_toml(config_path, args.profile, args.token_id, args.token_secret, force=args.force)
-        except ValueError as exc:
-            _exit_with_error(parser, "auth_error", str(exc), 1)
+        if args.token_id or args.token_secret:
+            _exit_with_error(
+                parser,
+                "argument_error",
+                "`sandbox auth` no longer accepts token secrets as command arguments. Use `uv run modal token set`.",
+                2,
+            )
         _print_json(
             {
-                "status": "configured",
-                "profile": args.profile,
-                "config_path": str(config_path),
+                "status": "manual_setup_required",
+                "message": "Use Modal's supported authentication flow; this CLI does not accept secrets.",
+                "commands": modal_setup_commands(),
+                "config_path": str(_modal_config_path()),
                 "creates_modal_resources": False,
             }
         )
+        return 0
+    if args.command_name == "preview":
+        payload = preview_payload(args, resolved_image=_resolve_cli_image(args.image), volumes=_volumes_from_args(args))
+        payload["config"] = config_metadata(args)
+        _print_json(payload)
         return 0
 
     sandbox: Sandbox | None = None
@@ -1971,10 +1371,8 @@ def main(argv: list[str] | None = None) -> int:
 
     except argparse.ArgumentTypeError as exc:
         _exit_with_error(parser, "argument_error", str(exc), 2)
-    except ModalAuthenticationError as exc:
-        _exit_with_error(parser, "modal_authentication_error", str(exc), 1)
     except Exception as exc:
-        _exit_with_error(parser, "runtime_error", str(exc), 1)
+        _exit_with_error(parser, error_type_for_exception(exc), str(exc), 1)
     finally:
         if sandbox is not None:
             sandbox.close()

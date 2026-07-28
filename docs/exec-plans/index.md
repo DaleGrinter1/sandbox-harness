@@ -4,7 +4,7 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 ## Active
 
-- [Public Plugin Onboarding](active/public-plugin-onboarding/PLAN_public-plugin-onboarding.md)
+None. See Completed for the most recent initiatives.
 
 ## Completed
 
@@ -14,6 +14,10 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 - [Repository Knowledge System](completed/repository-knowledge-system/PLAN_repository-knowledge-system.md)
 - [Release Readiness Hardening](completed/release-readiness-hardening/PLAN_release-readiness-hardening.md)
 - [Sandbox Workflow Expansion](completed/sandbox-workflow-expansion/PLAN_sandbox-workflow-expansion.md)
+- [Public Plugin Onboarding](completed/public-plugin-onboarding/PLAN_public-plugin-onboarding.md)
+- [Plugin First Product Experience](completed/plugin-first-product-experience/PLAN_plugin-first-product-experience.md)
+- [CLI Plugin Experience](completed/cli-plugin-experience/PLAN_cli-plugin-experience.md)
+- [Senior Review Remediation and Usability](completed/senior-review-remediation-and-usability/PLAN_senior-review-remediation-and-usability.md)
 
 ## Workflow Summary
 

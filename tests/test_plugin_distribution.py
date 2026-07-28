@@ -18,7 +18,9 @@ def test_plugin_copy_is_self_contained_and_runs_outside_checkout(tmp_path: Path)
     assert manifest["repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
     assert (installed / "scripts/preflight.py").is_file()
     assert (installed / "scripts/benchmark.py").is_file()
+    assert (installed / "scripts/workflow.py").is_file()
     assert (installed / "examples/python-json-workflow.json").is_file()
+    assert (installed / "examples/run-tests-safely.json").is_file()
 
     completed = subprocess.run(
         [
@@ -35,6 +37,22 @@ def test_plugin_copy_is_self_contained_and_runs_outside_checkout(tmp_path: Path)
 
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["status"] == "valid"
+
+    workflow_completed = subprocess.run(
+        [
+            sys.executable,
+            str(installed / "scripts/workflow.py"),
+            str(installed / "examples/run-tests-safely.json"),
+            "--validate-only",
+        ],
+        cwd=unrelated,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert workflow_completed.returncode == 0, workflow_completed.stderr
+    assert json.loads(workflow_completed.stdout)["status"] == "valid"
 
 
 def test_distributed_plugin_has_no_repository_runtime_paths() -> None:

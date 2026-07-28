@@ -33,10 +33,12 @@ Start with dry commands only:
 - uv run sandbox quickstart
 - ./scripts/dev/quickstart.sh
 
-After running `sandbox doctor`, check `credentials.authenticated`:
-- If true, proceed to live commands when the user asks for them.
-- If false, do not run live commands. Report the credential gap to the user.
-  Non-interactive fix: sandbox auth --token-id ID --token-secret SECRET
+After running `sandbox doctor`, check `credentials.complete` and
+`credentials.verified`:
+- If either is true, proceed to live commands when the user asks for them.
+- If both are false, do not run live commands. Report the credential gap to the user.
+  Non-interactive fix: set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET with the
+  user's normal secret manager
   Interactive fix: uv run modal setup
   Token URL: https://modal.com/settings/tokens
 

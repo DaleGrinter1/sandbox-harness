@@ -1,0 +1,66 @@
+{
+  "initiative": "cli-plugin-experience",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "status-cleanup",
+      "title": "Add status and cleanup commands",
+      "description": "Users can inspect visible sandbox apps and preview cleanup before explicitly stopping apps with --yes.",
+      "priority": 1,
+      "evidence": [
+        "packages/sandbox_cli/resources.py",
+        "packages/sandbox_cli/cli.py",
+        "tests/test_cli.py::test_cli_status_lists_sandbox_apps_without_creating_sandbox",
+        "tests/test_cli.py::test_cli_cleanup_dry_run_requires_yes_before_stopping",
+        "tests/test_cli.py::test_cli_cleanup_yes_stops_explicit_target",
+        "./scripts/dev/check.sh: 236 passed, 5 skipped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "plugin-preview-preflight",
+      "title": "Improve plugin preflight and preview-before-live",
+      "description": "Preflight returns a clear summary and runs a resource-free preview; benchmark scenarios record preview metadata before live runs.",
+      "priority": 2,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/preflight.py",
+        "plugins/modal-sandbox/scripts/benchmark.py",
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "tests/test_plugin_scripts.py",
+        "uv run pytest tests/test_plugin_acceptance.py tests/test_plugin_scripts.py tests/test_packaging.py: 38 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "project-config",
+      "title": "Add project-level sandbox.toml config",
+      "description": "Repeated global flags can be stored in sandbox.toml and explicit CLI flags override config values.",
+      "priority": 3,
+      "evidence": [
+        "packages/sandbox_cli/config.py",
+        "tests/test_cli.py::test_cli_project_config_fills_omitted_global_options",
+        "tests/test_cli.py::test_cli_explicit_flags_override_project_config",
+        "README.md",
+        "docs/references/cli.md",
+        "uv run pyright: 0 errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "contracts-docs-validation",
+      "title": "Regenerate contracts, update docs, and validate",
+      "description": "Schema, agent manifest, plugin guidance, docs, tests, and exec-plan state agree.",
+      "priority": 4,
+      "evidence": [
+        "docs/generated/cli-schema.json",
+        "docs/generated/agent-manifest.json",
+        "tests/test_cli_schema.py",
+        "./scripts/dev/schema.sh",
+        "./scripts/dev/check.sh passed",
+        "bash ./scripts/dev/release-check.sh passed",
+        "./scripts/execplan/check.sh passed"
+      ],
+      "passes": true
+    }
+  ]
+}

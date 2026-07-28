@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "id": "benchmark-two-approaches",
+  "user_prompt": "Use $modal-sandbox to benchmark two equivalent approaches under the same sandbox controls.",
+  "plugin_plan": {
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_command": "python <plugin-root>/scripts/benchmark.py scenario.json --validate-only",
+    "live_commands": ["python <plugin-root>/scripts/benchmark.py scenario.json --allow-live"],
+    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "approval_required": true,
+    "resource_boundary": "Live Modal commands require explicit user approval."
+  }
+}
+

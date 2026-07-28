@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "id": "run-tests-safely",
+  "user_prompt": "Use $modal-sandbox to run this untrusted test suite away from my laptop.",
+  "plugin_plan": {
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_command": "sandbox preview run python -m pytest",
+    "live_commands": ["sandbox run python -m pytest"],
+    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "approval_required": true,
+    "resource_boundary": "Live Modal commands require explicit user approval."
+  }
+}
+

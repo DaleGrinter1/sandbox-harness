@@ -837,6 +837,58 @@ def test_filesystem_errors_include_sandbox_path_context(monkeypatch) -> None:
         provider.read_text("missing.txt")
 
 
+def test_repeatable_filesystem_reads_retry_typed_transient_errors(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider(FakeSandboxObject(), SandboxConfig(), sleeper=lambda _: None)
+    attempts = 0
+
+    def flaky_read_text(remote_path: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise ConnectionError("connection reset")
+        return f"contents from {remote_path}"
+
+    provider._sandbox.filesystem.read_text = flaky_read_text
+
+    assert provider.read_text("ok.txt") == "contents from /workspace/ok.txt"
+    assert attempts == 3
+
+
+def test_mutating_filesystem_writes_do_not_retry_transient_errors(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider(FakeSandboxObject(), SandboxConfig(), sleeper=lambda _: None)
+    attempts = 0
+
+    def flaky_write_text(data: str, remote_path: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise ConnectionError(f"connection reset for {remote_path}")
+
+    provider._sandbox.filesystem.write_text = flaky_write_text
+
+    with pytest.raises(SandboxFilesystemError, match="writing text to /workspace/unsafe.txt"):
+        provider.write_text("unsafe.txt", "hello")
+    assert attempts == 1
+
+
+def test_message_only_transient_failures_are_not_retried(monkeypatch) -> None:
+    use_fake_modal(monkeypatch)
+    provider = ModalSandboxProvider(FakeSandboxObject(), SandboxConfig(), sleeper=lambda _: None)
+    attempts = 0
+
+    def flaky_read_text(remote_path: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("temporary network reset")
+
+    provider._sandbox.filesystem.read_text = flaky_read_text
+
+    with pytest.raises(SandboxFilesystemError, match="reading text from /workspace/nope.txt"):
+        provider.read_text("nope.txt")
+    assert attempts == 1
+
+
 def test_provider_timeouts_use_timeout_error_subclass(monkeypatch) -> None:
     use_fake_modal(monkeypatch)
     provider = ModalSandboxProvider.create(SandboxConfig())

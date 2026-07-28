@@ -1,0 +1,15 @@
+{
+  "initiative": "cli-plugin-experience",
+  "schema_version": 1,
+  "active_feature": "contracts-docs-validation",
+  "blockers": [],
+  "next_action": "Implementation complete. Review changes, then move this initiative to completed when the maintainer accepts the CLI/plugin experience improvements.",
+  "handoff_rules": [
+    "Read PLAN_cli-plugin-experience.md before implementation.",
+    "Update active_feature before starting a new feature.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence exists.",
+    "Do not run live Modal validation without explicit authorization."
+  ],
+  "last_updated": "2026-07-28T14:32:00+09:30"
+}

@@ -219,7 +219,7 @@ def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
     assert "sandbox dry" in skill
     assert "sandbox doctor" in skill
     assert "sandbox schema --agent" in skill
-    assert "doctor.credentials.authenticated" in skill
+    assert "doctor.credentials.complete" in skill
     assert "Use `sandbox run` or `sandbox run-command`" in skill
     assert "--workspace-volume NAME" in skill
     assert "--name NAME start" in skill
@@ -228,6 +228,7 @@ def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
     assert "Discovery, explanation, and planning requests do not" in skill
     assert "scripts/preflight.py" in skill
     assert "scripts/benchmark.py" in skill
+    assert "scripts/workflow.py" in skill
     assert "--validate-only" in skill
     assert "--allow-live" in skill
     assert 'default_prompt: "Use $modal-sandbox' in openai_yaml
@@ -237,13 +238,17 @@ def test_plugin_distributes_portable_scripts_examples_and_evals() -> None:
     plugin_root = Path("plugins/modal-sandbox")
     preflight = (plugin_root / "scripts/preflight.py").read_text(encoding="utf-8")
     benchmark = (plugin_root / "scripts/benchmark.py").read_text(encoding="utf-8")
+    workflow = (plugin_root / "scripts/workflow.py").read_text(encoding="utf-8")
     example = json.loads((plugin_root / "examples/python-json-workflow.json").read_text(encoding="utf-8"))
+    workflow_example = json.loads((plugin_root / "examples/run-tests-safely.json").read_text(encoding="utf-8"))
     corpus = json.loads((plugin_root / "evals/skill-trigger-corpus.json").read_text(encoding="utf-8"))
 
     assert preflight.startswith("#!/usr/bin/env python3")
     assert benchmark.startswith("#!/usr/bin/env python3")
-    assert "uv run" not in preflight + benchmark
+    assert workflow.startswith("#!/usr/bin/env python3")
+    assert "uv run" not in preflight + benchmark + workflow
     assert example["schema_version"] == "1"
+    assert workflow_example["plugin_plan"]["approval_required"] is True
     assert corpus["schema_version"] == "1"
     assert {case["expected"] for case in corpus["cases"]} == {
         "activate",

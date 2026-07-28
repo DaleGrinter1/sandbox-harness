@@ -1,7 +1,7 @@
 {
   "name": "modal-sandbox",
   "version": "0.4.0",
-  "description": "Run isolated, reproducible, or resource-controlled tasks in Modal Sandboxes through the modal-sandbox-sdk CLI.",
+  "description": "Plan and run safe, reproducible workflows in Modal Sandboxes.",
   "author": {
     "name": "DaleGrinter1",
     "email": "dalegrinter1@gmail.com",
@@ -14,16 +14,18 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Modal Sandbox",
-    "shortDescription": "Run reproducible tasks in isolated Modal Sandboxes.",
-    "longDescription": "Guides agents through safe discovery, authenticated execution, workflow benchmarking, persistent files, and reusable Modal Sandbox workflows using the modal-sandbox-sdk CLI.",
+    "shortDescription": "Plan safe Modal Sandbox workflows.",
+    "longDescription": "Guides agents through resource-free planning, preview-before-live execution, cleanup, workflow benchmarking, persistent files, and reusable Modal Sandbox workflows using the CLI as the execution engine.",
     "developerName": "DaleGrinter1",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],
     "websiteURL": "https://github.com/DaleGrinter1/sandbox-harness",
     "defaultPrompt": [
       "Run this task in an isolated, reproducible Modal Sandbox.",
+      "Plan a safe Modal Sandbox workflow before running it.",
       "Benchmark these equivalent workflows under the same sandbox controls.",
       "Use a Modal volume to persist these workspace files.",
+      "Inspect and clean up Modal Sandbox resources.",
       "Start a reusable Modal Sandbox for this coding task."
     ]
   }

@@ -69,3 +69,12 @@ ignore = ["E501"]
 include = ["packages", "tests"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+strict = [
+    "packages/sandbox_cli/auth.py",
+    "packages/sandbox_cli/config.py",
+    "packages/sandbox_cli/errors.py",
+    "packages/sandbox_cli/preview.py",
+    "packages/sandbox_cli/resources.py",
+    "packages/sandbox/_modal_adapters.py",
+    "packages/sandbox/_modal_errors.py",
+]

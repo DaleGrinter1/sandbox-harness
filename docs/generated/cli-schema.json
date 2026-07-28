@@ -13,8 +13,9 @@
       "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment for non-interactive use."
     ],
     "token_acquisition": {
-      "description": "Create a token at the Modal dashboard, then set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET for non-interactive use, or run `sandbox auth --token-id ID --token-secret SECRET` to write ~/.modal.toml.",
-      "non_interactive_command": "sandbox auth --token-id YOUR_TOKEN_ID --token-secret YOUR_TOKEN_SECRET",
+      "description": "Create a token at the Modal dashboard, then set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET for non-interactive use. For local setup, use Modal's supported `modal setup` or `modal token set` commands.",
+      "local_token_command": "modal token set",
+      "non_interactive_command": "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment.",
       "url": "https://modal.com/settings/tokens"
     }
   },
@@ -22,26 +23,47 @@
     "auth": {
       "arguments": {},
       "creates_sandbox": false,
-      "example": "sandbox auth --token-id ak-... --token-secret as-...",
+      "example": "sandbox auth",
       "options": {
-        "--force": "Overwrite an existing profile entry.",
-        "--profile": "Modal config profile to write (default: 'default').",
-        "--token-id": "Modal token ID (required). Obtain from https://modal.com/settings/tokens.",
-        "--token-secret": "Modal token secret (required)."
+        "deprecated --token-id/--token-secret": "Rejected because secrets should not appear in command arguments."
       },
       "output": {
+        "commands": "string[]",
         "config_path": "string",
         "creates_modal_resources": "false",
-        "profile": "string",
-        "status": "configured"
+        "message": "string",
+        "status": "manual_setup_required"
       },
-      "summary": "Write Modal credentials to ~/.modal.toml for non-interactive use."
+      "summary": "Print supported Modal authentication commands without accepting secrets."
+    },
+    "cleanup": {
+      "arguments": {},
+      "contacts_modal": "only with --all-sandbox-apps or --yes",
+      "creates_sandbox": false,
+      "example": "sandbox cleanup --app modal-sandbox-sdk --yes",
+      "options": {
+        "--all-sandbox-apps": "Target every visible modal-sandbox app.",
+        "--app APP_ID_OR_NAME": "Modal app ID or name to stop.",
+        "--modal-environment ENV": "Modal environment passed to Modal app commands.",
+        "--timeout SECONDS": "Maximum seconds to wait for Modal app commands.",
+        "--yes": "Actually stop selected Modal apps. Omit for dry-run JSON."
+      },
+      "output": {
+        "creates_modal_resources": "false",
+        "results": "object[] when --yes is used",
+        "status": "nothing_selected|dry_run|stopped|partial_failure",
+        "stops_modal_resources": "boolean",
+        "targets": "string[]"
+      },
+      "summary": "Preview or stop selected Modal sandbox apps."
     },
     "doctor": {
       "arguments": {},
       "creates_sandbox": false,
       "example": "sandbox doctor",
-      "options": {},
+      "options": {
+        "--verify": "Run `modal token info` to verify credentials without creating sandbox resources."
+      },
       "output": {
         "creates_modal_resources": "false",
         "credentials": "object",
@@ -52,7 +74,8 @@
         "recommended_commands": "object[]",
         "setup_commands": "string[]",
         "status": "string",
-        "summary": "object"
+        "summary": "object",
+        "verification": "object|null"
       },
       "summary": "Inspect local Modal package and credential setup, with beginner next steps."
     },
@@ -148,6 +171,30 @@
         "status": "mounted"
       },
       "summary": "Mount a Modal image snapshot inside the sandbox."
+    },
+    "preview": {
+      "arguments": {
+        "args": "Command arguments to display.",
+        "command": "Live command name to preview."
+      },
+      "creates_sandbox": false,
+      "example": "sandbox --image py313 --workspace-volume work preview run python app.py",
+      "options": {
+        "global creation options": "Resolved into redacted preview metadata."
+      },
+      "output": {
+        "creates_modal_resources": "false",
+        "env": "object",
+        "image": "string|null",
+        "lifecycle": "string",
+        "network": "object",
+        "resources": "object",
+        "status": "preview",
+        "volumes": "object[]",
+        "would_attach": "boolean",
+        "would_create_sandbox": "boolean"
+      },
+      "summary": "Preview resolved live behavior without creating resources."
     },
     "quickstart": {
       "arguments": {},
@@ -401,6 +448,26 @@
       },
       "summary": "Return metadata for a sandbox filesystem path."
     },
+    "status": {
+      "arguments": {},
+      "contacts_modal": true,
+      "creates_sandbox": false,
+      "example": "sandbox status",
+      "options": {
+        "--all": "Show all visible apps that look owned by modal-sandbox.",
+        "--modal-environment ENV": "Modal environment passed to `modal app list`.",
+        "--timeout SECONDS": "Maximum seconds to wait for Modal app listing."
+      },
+      "output": {
+        "apps": "object[]",
+        "contacts_modal": "true",
+        "creates_modal_resources": "false",
+        "error": "string|null",
+        "status": "ok|error",
+        "summary": "object"
+      },
+      "summary": "List Modal apps visible to this sandbox project without creating resources."
+    },
     "stop": {
       "arguments": {
         "sandbox_id": "Modal sandbox object ID. Can also be passed with --sandbox-id."
@@ -528,6 +595,7 @@
     "--allow-inbound-cidr CIDR": "Allow inbound tunnel/connect-token access from a CIDR range. Repeatable.",
     "--app-name": "Modal app name used for sandbox creation.",
     "--block-network": "Block outbound network access from the sandbox.",
+    "--config": "Project sandbox TOML config path. Defaults to sandbox.toml when present.",
     "--cpu": "CPU request passed through to Modal.",
     "--encrypted-port": "Expose an HTTPS Modal tunnel for the given port. Repeatable.",
     "--env KEY=VALUE": "Environment variable passed to the sandbox. Repeatable.",
@@ -536,6 +604,7 @@
     "--max-output-bytes": "Maximum captured bytes for stdout and stderr separately. Defaults to 10485760; use 0 to capture no bytes.",
     "--memory": "Memory request in MiB passed through to Modal.",
     "--name": "Name assigned to a newly created sandbox. Unique within the app while running.",
+    "--no-config": "Ignore project sandbox config.",
     "--readiness-exec COMMAND": "Create a sandbox with a Modal exec readiness probe parsed into argv.",
     "--readiness-interval-ms": "Readiness probe polling interval in milliseconds. Defaults to 100.",
     "--readiness-tcp PORT": "Create a sandbox with a Modal TCP readiness probe.",
@@ -657,6 +726,11 @@
     "named_sandboxes": "Use --name NAME when starting a sandbox and --sandbox-name NAME to attach to the currently running named sandbox.",
     "persistent_files": "Use --workspace-volume to preserve files across separate CLI commands.",
     "preflight_validation": "Invalid lifecycle combinations and global configuration are rejected before sandbox creation.",
+    "project_config": "Values from sandbox.toml fill omitted global options; explicit CLI flags win.",
+    "resource_management_commands": [
+      "status",
+      "cleanup --yes"
+    ],
     "safe_discovery_commands": [
       "dry",
       "schema",

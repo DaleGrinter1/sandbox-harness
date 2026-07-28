@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "id": "reusable-coding-sandbox",
+  "user_prompt": "Use $modal-sandbox to start a reusable Modal Sandbox for iterative coding.",
+  "plugin_plan": {
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_command": "sandbox --name agent-workspace preview start",
+    "live_commands": [
+      "sandbox --name agent-workspace start",
+      "sandbox --sandbox-name agent-workspace run python --version"
+    ],
+    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "approval_required": true,
+    "resource_boundary": "Live Modal commands require explicit user approval."
+  }
+}
+

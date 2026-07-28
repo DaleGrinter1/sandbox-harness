@@ -35,6 +35,11 @@ def benchmark_module(preflight_module: ModuleType, monkeypatch: pytest.MonkeyPat
     return _load_module("modal_sandbox_plugin_benchmark", SCRIPTS_ROOT / "benchmark.py")
 
 
+@pytest.fixture
+def workflow_module() -> ModuleType:
+    return _load_module("modal_sandbox_plugin_workflow", SCRIPTS_ROOT / "workflow.py")
+
+
 def _completed(
     arguments: list[str], payload: dict[str, Any] | None = None, *, stdout: str = ""
 ) -> subprocess.CompletedProcess[str]:
@@ -53,7 +58,7 @@ def test_preflight_runs_only_resource_free_commands(
         if command[-1] == "--version":
             return _completed(command, stdout="sandbox 0.4.0\n")
         if command[-1] == "doctor":
-            return _completed(command, {"credentials": {"authenticated": True}})
+            return _completed(command, {"credentials": {"complete": True, "verified": False}})
         if command[-2:] == ["schema", "--agent"]:
             return _completed(command, {"schema_version": "1", "golden_workflows": []})
         return _completed(command, {"creates_modal_resources": False})
@@ -64,12 +69,18 @@ def test_preflight_runs_only_resource_free_commands(
     assert result["ok"] is True
     assert result["resource_free"] is True
     assert result["ready_for_live"] is True
+    assert result["summary"]["status"] == "ready_for_live"
+    assert result["summary"]["safe_to_continue"] is True
+    assert result["summary"]["next_action"] == "preview_live_command"
+    assert result["summary"]["requires_user_approval"] is True
+    assert result["checks"]["preview"]["creates_modal_resources"] is False
     assert calls == [
         ["fake-sandbox", "--version"],
         ["fake-sandbox", "dry"],
         ["fake-sandbox", "doctor"],
         ["fake-sandbox", "schema", "--agent"],
         ["fake-sandbox", "quickstart"],
+        ["fake-sandbox", "--image", "py313", "preview", "run", "python", "-c", "print(123)"],
     ]
 
 
@@ -91,7 +102,7 @@ def test_preflight_rejects_incompatible_cli(
         if command[-1] == "--version":
             return _completed(command, stdout=f"sandbox {version}\n")
         if command[-1] == "doctor":
-            return _completed(command, {"credentials": {"authenticated": False}})
+            return _completed(command, {"credentials": {"complete": False, "verified": False}})
         if command[-2:] == ["schema", "--agent"]:
             return _completed(command, {"schema_version": schema_version})
         return _completed(command, {})
@@ -134,6 +145,39 @@ def test_example_benchmark_manifest_validates_without_cli_from_unrelated_directo
         "benchmark_id": "python-json-workflow",
         "scenario_count": 1,
     }
+
+
+def test_workflow_examples_validate_without_modal(workflow_module: ModuleType) -> None:
+    for path in sorted((PLUGIN_ROOT / "examples").glob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if "plugin_plan" not in payload:
+            continue
+        workflow = workflow_module.validate_workflow(payload)
+        assert workflow["plugin_plan"]["approval_required"] is True
+        assert workflow["plugin_plan"]["preview_command"]
+
+
+def test_workflow_planner_emits_resource_free_plan(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "workflow.py"),
+            "--intent",
+            "run-tests-safely",
+            "--command",
+            "python -m pytest",
+        ],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "planned"
+    assert payload["resource_free"] is True
+    assert payload["workflow"]["plugin_plan"]["approval_required"] is True
 
 
 def test_benchmark_requires_explicit_live_authorization(tmp_path: Path) -> None:
@@ -229,12 +273,13 @@ def test_benchmark_retains_partial_runs(benchmark_module: ModuleType, monkeypatc
         "run_preflight",
         lambda _: {
             "ok": True,
-            "authenticated": True,
+            "ready_for_live": True,
             "cli": {"version": "0.4.0", "schema_version": "1"},
         },
     )
     responses = iter(
         [
+            {"status": "preview", "creates_modal_resources": False},
             {"exit_code": 0, "stdout": "ok", "stderr": "", "timed_out": False},
             {"exit_code": 3, "stdout": "", "stderr": "failed", "timed_out": False},
         ]
@@ -247,6 +292,7 @@ def test_benchmark_retains_partial_runs(benchmark_module: ModuleType, monkeypatc
     result = benchmark_module.run_benchmark(manifest, "fake-sandbox")
 
     assert result["status"] == "completed_with_failures"
+    assert result["scenarios"][0]["preview"]["payload"]["status"] == "preview"
     assert len(result["scenarios"][0]["runs"]) == 2
     assert result["scenarios"][0]["summary"]["successful_runs"] == 1
 
@@ -260,7 +306,7 @@ def test_benchmark_stops_when_authentication_is_unavailable(
         "run_preflight",
         lambda _: {
             "ok": True,
-            "authenticated": False,
+            "credential_complete": False,
             "ready_for_live": False,
         },
     )

@@ -1,0 +1,109 @@
+{
+  "initiative": "senior-review-remediation-and-usability",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "credential-safety-and-truthful-doctor",
+      "title": "Remove unsafe credential handling and make doctor truthful",
+      "description": "Secrets do not need to appear in command arguments, custom credential-file mutation is removed or safely deprecated, and doctor distinguishes local configuration evidence from verified authentication.",
+      "priority": 1,
+      "evidence": [
+        "packages/sandbox_cli/auth.py",
+        "packages/sandbox_cli/cli.py",
+        "docs/references/modal-setup.md",
+        "tests/test_cli.py::test_cli_auth_prints_supported_setup_without_writing_credentials",
+        "tests/test_cli.py::test_cli_auth_rejects_secret_arguments_without_echoing_secret",
+        "tests/test_cli.py::test_cli_doctor_verify_merges_modal_token_info",
+        "uv run pytest tests/test_cli.py tests/test_provider_modal.py tests/test_cli_schema.py tests/test_modal_adapters.py: 142 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "retry-and-error-contract",
+      "title": "Make retries operation-aware and CLI errors specific",
+      "description": "Only safe operations retry typed transient failures, mutating operations are not repeated after ambiguous failures, and SDK exception subclasses map to documented CLI JSON categories.",
+      "priority": 2,
+      "evidence": [
+        "packages/sandbox/_modal_errors.py",
+        "packages/sandbox/provider_modal.py",
+        "packages/sandbox_cli/errors.py",
+        "tests/test_provider_modal.py::test_repeatable_filesystem_reads_retry_typed_transient_errors",
+        "tests/test_provider_modal.py::test_mutating_filesystem_writes_do_not_retry_transient_errors",
+        "tests/test_provider_modal.py::test_message_only_transient_failures_are_not_retried",
+        "tests/test_cli.py::test_cli_maps_sdk_exceptions_to_specific_error_types"
+      ],
+      "passes": true
+    },
+    {
+      "id": "release-and-plan-consistency",
+      "title": "Reconcile release records, quality evidence, and active plan state",
+      "description": "Plugin and package versions have explicit sources of truth, current docs agree, the onboarding manual gate is resolved, and the quality score reflects the 0.4.1 surface.",
+      "priority": 3,
+      "evidence": [
+        "docs/QUALITY_SCORE.md",
+        "docs/exec-plans/active/public-plugin-onboarding/PLAN_public-plugin-onboarding.md",
+        "docs/exec-plans/active/public-plugin-onboarding/state/feature-list.json",
+        "docs/exec-plans/active/public-plugin-onboarding/state/session-state.json",
+        "tests/test_packaging.py",
+        "bash ./scripts/dev/release-check.sh passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "boundary-tests-and-typing",
+      "title": "Add direct boundary tests and strengthen typing",
+      "description": "Schema, Modal adapters, provider error translation, and retry policy have focused direct tests, with stricter typing adopted in bounded module groups.",
+      "priority": 4,
+      "evidence": [
+        "tests/test_cli_schema.py",
+        "tests/test_modal_adapters.py",
+        "pyproject.toml strict module group",
+        "uv run pyright: 0 errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "module-responsibility-cleanup",
+      "title": "Clarify CLI, SDK, provider, and test ownership boundaries",
+      "description": "Large modules are separated by coherent responsibility behind compatible public entry points, and tests are organized by behavior rather than accumulated in monolithic files.",
+      "priority": 5,
+      "evidence": [
+        "packages/sandbox_cli/auth.py",
+        "packages/sandbox_cli/errors.py",
+        "packages/sandbox_cli/preview.py",
+        "packages/sandbox/_modal_adapters.py",
+        "tests/test_cli_schema.py",
+        "tests/test_modal_adapters.py",
+        "uv run ruff check . passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "resource-free-execution-preview",
+      "title": "Preview resolved live behavior without creating resources",
+      "description": "Users and agents can inspect redacted resolved configuration, lifecycle, network, volume, and resource-creation behavior before running a live command.",
+      "priority": 6,
+      "evidence": [
+        "packages/sandbox_cli/preview.py",
+        "packages/sandbox_cli/cli.py preview command",
+        "packages/sandbox_cli/schema.py preview schema",
+        "docs/generated/cli-schema.json",
+        "docs/references/cli.md",
+        "README.md",
+        "tests/test_cli.py::test_cli_preview_resolves_configuration_without_creating_sandbox"
+      ],
+      "passes": true
+    },
+    {
+      "id": "next-usability-evaluation",
+      "title": "Evaluate the next workflow convenience with evidence",
+      "description": "Project profiles, sandbox status and cleanup, and bounded project upload/run are compared for value, safety, compatibility, and maintenance cost; at most one is promoted into a separate initiative.",
+      "priority": 7,
+      "evidence": [
+        "docs/design-docs/next-usability-evaluation.md",
+        "docs/design-docs/index.md"
+      ],
+      "passes": true
+    }
+  ]
+}

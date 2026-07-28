@@ -3,7 +3,9 @@
 The `modal-sandbox` Codex plugin is the primary product entry point for agents
 whose tasks need isolated, reproducible, or resource-controlled execution. It
 delegates execution to the public `modal-sandbox-sdk` package and its JSON-first
-`sandbox` CLI; distributed plugin scripts orchestrate that CLI but do not
+`sandbox` CLI. The CLI is the plugin's engine; the Python SDK is the lower-level
+implementation layer used by that engine. Distributed plugin scripts orchestrate
+workflow planning, preflight, and benchmarking around the CLI but do not
 duplicate the Python implementation or add an MCP server.
 
 ## Package Boundaries

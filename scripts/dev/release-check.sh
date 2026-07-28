@@ -14,7 +14,8 @@ uv run twine check dist/*
 
 echo "==> installed wheel smoke"
 tmpdir="$(mktemp -d)"
-python -m venv "$tmpdir/venv"
+python_bin="$(command -v python || command -v python3)"
+"$python_bin" -m venv "$tmpdir/venv"
 venv_python="$tmpdir/venv/bin/python"
 venv_sandbox="$tmpdir/venv/bin/sandbox"
 if [[ ! -x "$venv_python" ]]; then

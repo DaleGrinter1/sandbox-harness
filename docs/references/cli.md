@@ -24,12 +24,29 @@ rules, auth setup commands, and examples as JSON. Use
 order, skill routing, safe commands, validation commands, and golden workflows.
 
 `sandbox doctor` reports whether the Modal Python package is importable and
-whether credentials appear to be configured through environment variables or
-`~/.modal.toml`, plus beginner next steps.
+whether credentials are locally configured and complete through environment
+variables or the selected `~/.modal.toml` profile, plus beginner next steps.
+It does not contact Modal unless you pass `--verify`, which runs Modal's
+supported `modal token info` check without creating sandbox resources.
 
 `sandbox quickstart` previews a first live command without creating resources.
 Use `sandbox quickstart --run` to create a short-lived sandbox and run
 `python -c 'print(123)'`.
+
+`sandbox preview COMMAND ...` shows the resolved image, workspace, volumes,
+network policy, redacted environment keys, resources, ports, readiness probe,
+and lifecycle for a live command without creating or attaching to Modal
+resources.
+
+`sandbox status` lists visible Modal apps for the configured sandbox app name.
+It contacts Modal but does not create resources.
+
+`sandbox cleanup` previews cleanup targets by default. Add `--yes` to stop an
+explicit `--app APP_ID_OR_NAME`, or use `--all-sandbox-apps --yes` to stop
+every visible Modal app whose name looks owned by this package.
+
+Project-level `sandbox.toml` fills omitted global flags. Explicit CLI flags
+always win, and `--no-config` disables config loading.
 
 ## Golden Workflows
 
@@ -51,6 +68,8 @@ uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
+uv run sandbox --image py313 --workspace-volume work preview run python app.py
+uv run sandbox status
 ```
 
 Short-lived execution:
@@ -78,6 +97,16 @@ uv run sandbox --sandbox-id sb-abc123 write app.py --content "print(123)"
 uv run sandbox --sandbox-id sb-abc123 run "python app.py"
 uv run sandbox stop sb-abc123
 ```
+
+Inspect visible sandbox apps and preview cleanup:
+
+```bash
+uv run sandbox status
+uv run sandbox cleanup --app modal-sandbox-sdk
+uv run sandbox cleanup --app modal-sandbox-sdk --yes
+```
+
+`cleanup` never stops anything unless `--yes` is present.
 
 ## Commands
 
@@ -140,6 +169,34 @@ uv run sandbox --encrypted-port 8080 --allow-inbound-cidr 203.0.113.0/24 start
 ```
 
 `--block-network` cannot be combined with domain or CIDR allowlists.
+
+Preview the resolved live behavior before creating resources:
+
+```bash
+uv run sandbox --image py313 --workspace-volume work --env SECRET=value preview run python app.py
+```
+
+The preview redacts environment values and reports only their keys.
+
+Store repeated settings in `sandbox.toml`:
+
+```toml
+image = "py313"
+workspace_volume = "my-project-work"
+allow_domain = ["api.openai.com"]
+
+[env]
+API_MODE = "development"
+```
+
+Then run:
+
+```bash
+uv run sandbox preview run python app.py
+uv run sandbox run "python app.py"
+```
+
+Use `--no-config` when you want only command-line flags.
 
 Mount additional Modal volumes with `--volume NAME:/absolute/path`:
 

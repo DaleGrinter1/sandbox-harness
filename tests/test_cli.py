@@ -11,6 +11,7 @@ from sandbox import (
     ModalAuthenticationError,
     SandboxConfig,
     SandboxFileStat,
+    SandboxFilesystemError,
     SandboxImageSnapshot,
     SandboxReadinessProbe,
     SandboxSnapshot,
@@ -26,6 +27,7 @@ class FakeSandbox:
     from_name_calls: list[dict[str, object]] = []
     instances: list[FakeSandbox] = []
     raise_auth_error = False
+    raise_filesystem_error = False
 
     @classmethod
     def create(cls, **kwargs: object) -> FakeSandbox:
@@ -135,6 +137,8 @@ class FakeSandbox:
         self.written = (path, content)
 
     def read_text(self, path: str) -> str:
+        if self.raise_filesystem_error:
+            raise SandboxFilesystemError(f"missing {path}")
         return "file contents"
 
     def list_files(self, path: str = ".") -> list[str]:
@@ -243,6 +247,7 @@ def reset_fake_sandbox() -> None:
     FakeSandbox.from_name_calls = []
     FakeSandbox.instances = []
     FakeSandbox.raise_auth_error = False
+    FakeSandbox.raise_filesystem_error = False
 
 
 def test_cli_run_outputs_json(monkeypatch, capsys) -> None:
@@ -763,7 +768,7 @@ def test_cli_snapshot_without_workspace_volume_reports_json_argument_error_witho
     assert payload["error"]["type"] == "argument_error"
     assert payload["error"]["message"] == "snapshot requires --workspace-volume"
     assert payload["error"]["next_steps"] == [
-        "Run `sandbox doctor` to inspect local setup without creating Modal resources."
+        "Run `sandbox doctor` to inspect local setup without creating Modal resources.",
     ]
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
@@ -1023,7 +1028,8 @@ def test_cli_modal_auth_error_reports_setup_guidance_without_traceback(monkeypat
     assert payload["error"]["type"] == "modal_authentication_error"
     assert payload["error"]["message"] == "Run modal setup before using Modal sandboxes."
     assert payload["error"]["next_steps"] == [
-        "Run `sandbox doctor` to inspect local setup without creating Modal resources."
+        "Run `sandbox doctor`.",
+        "Run `uv run modal setup` or configure Modal token environment variables.",
     ]
 
 
@@ -1175,6 +1181,8 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
     payload = json.loads(capsys.readouterr().out)
     expected_commands = {
         "start",
+        "status",
+        "cleanup",
         "stop",
         "run",
         "run-command",
@@ -1202,6 +1210,7 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
         "doctor",
         "quickstart",
         "auth",
+        "preview",
     }
     assert set(payload["commands"]) == expected_commands
     assert payload["schema_version"] == "1"
@@ -1214,7 +1223,8 @@ def test_cli_schema_contract_pins_commands_lifecycle_and_workflows(monkeypatch, 
     assert payload["lifecycle"]["safe_discovery_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert payload["lifecycle"]["dry_commands"] == ["dry", "schema", "doctor", "quickstart"]
     assert set(payload["lifecycle"]["live_modal_commands"]) == (
-        expected_commands - {"dry", "schema", "doctor", "quickstart", "auth"} | {"quickstart --run"}
+        expected_commands - {"dry", "schema", "doctor", "quickstart", "auth", "preview", "status", "cleanup"}
+        | {"quickstart --run"}
     )
     assert [workflow["id"] for workflow in payload["golden_workflows"]] == [
         "safe_first_run",
@@ -1258,6 +1268,9 @@ def test_cli_schema_agent_outputs_compact_manifest_without_creating_sandbox(monk
     }
     assert payload["live_modal"]["requires_explicit_user_request"] is True
     assert "quickstart --run" in payload["live_modal"]["commands"]
+    assert payload["resource_management"]["status_command"] == "sandbox status"
+    assert payload["resource_management"]["cleanup_requires_explicit_user_request"] is True
+    assert payload["project_config"]["filename"] == "sandbox.toml"
     assert payload["skills"]["repo_understanding"]["path"].endswith("modal-sandbox-repo-understanding/SKILL.md")
     assert payload["skills"]["package_maintenance"]["purpose"]
     assert payload["validation"]["full_no_resource"] == "./scripts/dev/check.sh"
@@ -1382,7 +1395,7 @@ def test_cli_doctor_reports_modal_readiness_without_creating_sandbox(monkeypatch
     assert payload["setup_commands"][0] == "modal setup"
     assert payload["summary"] == {
         "ready": False,
-        "message": "Modal credentials were not found. Run modal setup before creating a sandbox.",
+        "message": "Complete Modal credentials were not found. Run modal setup before creating a sandbox.",
         "next_command": "uv run modal setup",
     }
     assert FakeSandbox.create_calls == []
@@ -1408,11 +1421,12 @@ def test_cli_doctor_reports_partial_environment_credentials(monkeypatch, capsys,
     assert payload["next_steps"] == ["Set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or run `uv run modal setup`."]
     assert payload["credentials"]["status"] == "partial_environment"
     assert payload["credentials"]["environment"] == {
-        "environment_vars_set": False,
+        "environment_vars_complete": False,
         "modal_token_id_set": True,
         "modal_token_secret_set": False,
     }
-    assert payload["credentials"]["authenticated"] is False
+    assert payload["credentials"]["complete"] is False
+    assert payload["credentials"]["verified"] is False
     assert payload["ready_hint"] == (
         "Modal token environment variables are incomplete. Set both token variables before creating a sandbox."
     )
@@ -1445,79 +1459,221 @@ def test_cli_doctor_reports_ready_when_credentials_are_configured(monkeypatch, c
     assert payload["next_steps"] == [
         "Run `sandbox quickstart --run` to create a short-lived sandbox and verify execution."
     ]
-    assert payload["credentials"]["status"] == "configured_from_environment"
+    assert payload["credentials"]["status"] == "complete_from_environment"
+    assert payload["credentials"]["complete"] is True
+    assert payload["credentials"]["verified"] is False
     assert payload["creates_modal_resources"] is False
     assert payload["summary"] == {
         "ready": True,
-        "message": "Modal is configured. You can run a live sandbox quickstart.",
+        "message": "Modal credentials are complete locally. Run `sandbox doctor --verify` to verify them with Modal.",
         "next_command": "sandbox quickstart --run",
     }
     assert FakeSandbox.create_calls == []
     assert FakeSandbox.instances == []
 
 
-def test_cli_auth_writes_modal_toml(monkeypatch, capsys, tmp_path) -> None:
+def test_cli_auth_prints_supported_setup_without_writing_credentials(monkeypatch, capsys, tmp_path) -> None:
     config_path = tmp_path / ".modal.toml"
     monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
 
-    exit_code = cli.main(["auth", "--token-id", "ak-test", "--token-secret", "as-test"])
+    exit_code = cli.main(["auth"])
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert payload["status"] == "configured"
-    assert payload["profile"] == "default"
+    assert payload["status"] == "manual_setup_required"
+    assert "modal token set" in " ".join(payload["commands"])
     assert payload["config_path"] == str(config_path)
     assert payload["creates_modal_resources"] is False
-    content = config_path.read_text()
-    assert 'token_id = "ak-test"' in content
-    assert 'token_secret = "as-test"' in content
-    assert "[default]" in content
+    assert not config_path.exists()
 
 
-def test_cli_auth_custom_profile(monkeypatch, capsys, tmp_path) -> None:
+def test_cli_auth_rejects_secret_arguments_without_echoing_secret(monkeypatch, capsys, tmp_path) -> None:
     config_path = tmp_path / ".modal.toml"
-    monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
-
-    exit_code = cli.main(["auth", "--token-id", "ak-ci", "--token-secret", "as-ci", "--profile", "ci"])
-
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0
-    assert payload["profile"] == "ci"
-    content = config_path.read_text()
-    assert "[ci]" in content
-    assert 'token_id = "ak-ci"' in content
-
-
-def test_cli_auth_errors_when_profile_exists_without_force(monkeypatch, capsys, tmp_path) -> None:
-    config_path = tmp_path / ".modal.toml"
-    config_path.write_text('[default]\ntoken_id = "old-id"\ntoken_secret = "old-secret"\n', encoding="utf-8")
     monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
 
     with pytest.raises(SystemExit) as exc:
         cli.main(["auth", "--token-id", "ak-new", "--token-secret", "as-new"])
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     payload = json.loads(capsys.readouterr().err)
-    assert payload["error"]["type"] == "auth_error"
-    assert "already exists" in payload["error"]["message"]
-    assert "--force" in payload["error"]["message"]
-    # Original credentials untouched
-    assert 'token_id = "old-id"' in config_path.read_text()
+    assert payload["error"]["type"] == "argument_error"
+    assert "token secrets" in payload["error"]["message"]
+    assert "as-new" not in json.dumps(payload)
+    assert not config_path.exists()
 
 
-def test_cli_auth_force_overwrites_existing_profile(monkeypatch, capsys, tmp_path) -> None:
+def test_cli_doctor_verify_merges_modal_token_info(monkeypatch, capsys, tmp_path) -> None:
     config_path = tmp_path / ".modal.toml"
-    config_path.write_text('[default]\ntoken_id = "old-id"\ntoken_secret = "old-secret"\n', encoding="utf-8")
     monkeypatch.setattr(cli, "_modal_config_path", lambda: config_path)
+    monkeypatch.setattr(cli, "_modal_package_info", lambda: {"installed": True, "version": "1.5.0"})
+    monkeypatch.setattr(
+        cli,
+        "verify_modal_token",
+        lambda **_: {
+            "verification_performed": True,
+            "verified": True,
+            "method": "modal token info",
+            "exit_code": 0,
+            "message": "Token is valid",
+        },
+    )
+    monkeypatch.setenv("MODAL_TOKEN_ID", "ak-test")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "as-test")
 
-    exit_code = cli.main(["auth", "--token-id", "ak-new", "--token-secret", "as-new", "--force"])
+    exit_code = cli.main(["doctor", "--verify"])
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert payload["status"] == "configured"
-    content = config_path.read_text()
-    assert 'token_id = "ak-new"' in content
-    assert "old-id" not in content
+    assert payload["credentials"]["verification_performed"] is True
+    assert payload["credentials"]["verified"] is True
+    assert payload["verification"]["method"] == "modal token info"
+    assert payload["creates_modal_resources"] is False
+
+
+def test_cli_preview_resolves_configuration_without_creating_sandbox(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(
+        [
+            "--image",
+            "py313",
+            "--workspace-volume",
+            "work",
+            "--volume",
+            "cache:/cache",
+            "--env",
+            "SECRET=value",
+            "--allow-domain",
+            "example.com",
+            "preview",
+            "run",
+            "python",
+            "app.py",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "preview"
+    assert payload["creates_modal_resources"] is False
+    assert payload["would_create_sandbox"] is True
+    assert payload["image"] == "python:3.13-slim"
+    assert payload["env"] == {"keys": ["SECRET"], "values_redacted": True}
+    assert payload["volumes"][0]["volume"] == "work"
+    assert payload["volumes"][1]["mount_path"] == "/cache"
+    assert payload["network"]["outbound_domain_allowlist"] == ["example.com"]
+    assert FakeSandbox.create_calls == []
+    assert FakeSandbox.instances == []
+
+
+def test_cli_project_config_fills_omitted_global_options(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sandbox.toml").write_text(
+        "\n".join(
+            [
+                'image = "py313"',
+                'workspace_volume = "project-work"',
+                'allow_domain = ["api.openai.com"]',
+                "[env]",
+                'API_KEY = "secret-value"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["preview", "run", "python", "app.py"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["image"] == "python:3.13-slim"
+    assert payload["volumes"][0]["volume"] == "project-work"
+    assert payload["network"]["outbound_domain_allowlist"] == ["api.openai.com"]
+    assert payload["env"] == {"keys": ["API_KEY"], "values_redacted": True}
+    assert payload["config"]["loaded"] is True
+    assert payload["config"]["path"].endswith("sandbox.toml")
+
+
+def test_cli_explicit_flags_override_project_config(monkeypatch, capsys, tmp_path) -> None:
+    config_path = tmp_path / "sandbox.toml"
+    config_path.write_text('image = "py312"\nworkspace_volume = "from-config"\n', encoding="utf-8")
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["--config", str(config_path), "--image", "py313", "preview", "run", "python", "app.py"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["image"] == "python:3.13-slim"
+    assert payload["volumes"][0]["volume"] == "from-config"
+
+
+def test_cli_status_lists_sandbox_apps_without_creating_sandbox(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "list_modal_apps",
+        lambda **_: {
+            "ok": True,
+            "apps": [
+                {"app_id": "ap-1", "name": "modal-sandbox-sdk", "state": "running"},
+                {"app_id": "ap-2", "name": "other", "state": "running"},
+            ],
+        },
+    )
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+
+    exit_code = cli.main(["status"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["creates_modal_resources"] is False
+    assert payload["contacts_modal"] is True
+    assert payload["apps"] == [{"app_id": "ap-1", "name": "modal-sandbox-sdk", "state": "running"}]
+    assert payload["summary"]["next_cleanup_command"] == "sandbox cleanup --app modal-sandbox-sdk --yes"
+    assert FakeSandbox.create_calls == []
+
+
+def test_cli_cleanup_dry_run_requires_yes_before_stopping(monkeypatch, capsys) -> None:
+    stop_calls: list[str] = []
+    monkeypatch.setattr(cli, "stop_modal_app", lambda identifier, **_: stop_calls.append(identifier))
+
+    exit_code = cli.main(["cleanup", "--app", "modal-sandbox-sdk"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "dry_run"
+    assert payload["targets"] == ["modal-sandbox-sdk"]
+    assert payload["stops_modal_resources"] is False
+    assert stop_calls == []
+
+
+def test_cli_cleanup_yes_stops_explicit_target(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "stop_modal_app",
+        lambda identifier, **_: {"identifier": identifier, "ok": True, "returncode": 0, "message": "stopped"},
+    )
+
+    exit_code = cli.main(["cleanup", "--app", "modal-sandbox-sdk", "--yes"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "stopped"
+    assert payload["stops_modal_resources"] is True
+    assert payload["results"][0]["identifier"] == "modal-sandbox-sdk"
+
+
+def test_cli_maps_sdk_exceptions_to_specific_error_types(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "Sandbox", FakeSandbox)
+    FakeSandbox.raise_filesystem_error = True
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["read", "missing.txt"])
+
+    payload = json.loads(capsys.readouterr().err)
+    assert exc.value.code == 1
+    assert payload["error"]["type"] == "filesystem_error"
+    assert "missing missing.txt" in payload["error"]["message"]
 
 
 def test_cli_quickstart_preview_does_not_create_sandbox(monkeypatch, capsys, tmp_path) -> None:

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "id": "debug-failing-script",
+  "user_prompt": "Use $modal-sandbox to debug this failing script in a clean Python sandbox.",
+  "plugin_plan": {
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_command": "sandbox preview run python script.py",
+    "live_commands": ["sandbox run python script.py"],
+    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "approval_required": true,
+    "resource_boundary": "Live Modal commands require explicit user approval."
+  }
+}
+

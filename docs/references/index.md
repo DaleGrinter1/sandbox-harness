@@ -8,6 +8,7 @@ Reference docs are stable operational notes and migrated repo docs.
 - [Collaborator Onboarding](collaborator-onboarding.md)
 - [Development](development.md)
 - [Modal Setup](modal-setup.md)
+- [Repo Explainer](repo-explainer-notion.md)
 - [Agent And MCP Notes](agents.md)
 
 ## External Source Material

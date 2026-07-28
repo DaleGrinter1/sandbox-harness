@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "id": "inspect-and-cleanup",
+  "user_prompt": "Use $modal-sandbox to inspect and clean up reusable sandbox resources.",
+  "plugin_plan": {
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_command": "sandbox cleanup --app modal-sandbox-sdk",
+    "live_commands": ["sandbox cleanup --app modal-sandbox-sdk --yes"],
+    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "approval_required": true,
+    "resource_boundary": "Stopping Modal apps requires explicit user approval."
+  }
+}

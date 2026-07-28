@@ -254,6 +254,27 @@ def _run_once(executable: str, scenario: dict[str, Any], iteration: int) -> dict
     }
 
 
+def _preview_scenario(executable: str, scenario: dict[str, Any]) -> dict[str, Any]:
+    arguments = [*(_cli_arguments(scenario)[:-2]), "preview", "run", _remote_command(scenario)]
+    try:
+        completed = subprocess.run(
+            [executable, *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "error": str(exc), "command": [executable, *arguments]}
+    try:
+        payload = json.loads(completed.stdout)
+        if not isinstance(payload, dict):
+            raise json.JSONDecodeError("expected object", completed.stdout, 0)
+    except json.JSONDecodeError:
+        payload = {"error": completed.stderr.strip() or completed.stdout.strip()}
+    return {"ok": completed.returncode == 0, "command": [executable, *arguments], "payload": payload}
+
+
 def _summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     durations = [float(run["duration_seconds"]) for run in runs]
     successful = [run for run in runs if run.get("failure_class") is None]
@@ -268,7 +289,7 @@ def _summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 def run_benchmark(manifest: dict[str, Any], executable: str) -> dict[str, Any]:
     preflight = run_preflight(executable)
-    if not preflight["ok"] or not preflight.get("authenticated"):
+    if not preflight["ok"] or not preflight.get("ready_for_live"):
         return {
             "schema_version": "1",
             "benchmark_id": manifest["benchmark_id"],
@@ -281,6 +302,7 @@ def run_benchmark(manifest: dict[str, Any], executable: str) -> dict[str, Any]:
     results = []
     has_failures = False
     for scenario in manifest["scenarios"]:
+        preview = _preview_scenario(executable, scenario)
         warmups = [_run_once(executable, scenario, index + 1) for index in range(scenario["warmups"])]
         runs = [_run_once(executable, scenario, index + 1) for index in range(scenario["repetitions"])]
         has_failures = has_failures or any(run.get("failure_class") is not None for run in [*warmups, *runs])
@@ -289,6 +311,7 @@ def run_benchmark(manifest: dict[str, Any], executable: str) -> dict[str, Any]:
             {
                 "id": scenario["id"],
                 "configuration": configuration,
+                "preview": preview,
                 "warmups": warmups,
                 "runs": runs,
                 "summary": _summary(runs),

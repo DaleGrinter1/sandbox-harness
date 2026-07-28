@@ -13,9 +13,6 @@ from .errors import (
     SandboxTimeoutError,
 )
 
-_TRANSIENT_ERROR_KEYWORDS = frozenset(
-    ["connection", "timeout", "network", "unavailable", "retry", "reset", "refused", "temporary"]
-)
 _FILESYSTEM_CONTEXT_KEYWORDS = frozenset(
     [
         "copying",
@@ -43,8 +40,12 @@ After setup completes, retry your sandbox command."""
 
 
 def is_transient_error(exc: Exception) -> bool:
-    """Return whether an exception looks transient enough to retry."""
-    return any(keyword in str(exc).lower() for keyword in _TRANSIENT_ERROR_KEYWORDS)
+    """Return whether an exception type is transient enough to retry.
+
+    Message-based retry detection is deliberately avoided because provider
+    messages change over time and can accidentally match mutating failures.
+    """
+    return isinstance(exc, TimeoutError | ConnectionError)
 
 
 def is_modal_auth_error(

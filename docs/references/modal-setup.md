@@ -22,6 +22,10 @@ uv run modal token new
 You can also set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the process
 environment using your normal secret manager.
 
+The `sandbox auth` command prints supported Modal setup commands only. It does
+not accept token secrets as command arguments. Use `uv run modal token set` for
+Modal's prompted local token flow.
+
 When Modal reports missing, invalid, or expired credentials, this SDK raises
 `ModalAuthenticationError` with setup commands so CLI users and Python callers
 get a next step instead of a raw Modal traceback.
@@ -34,6 +38,8 @@ wrapped in `SandboxProviderError`; nonzero command exits remain regular
 
 - `sandbox doctor` and `sandbox quickstart` are safe discovery commands and do
   not create Modal resources.
+- `sandbox doctor` reports local credential evidence. Add `--verify` when you
+  want it to run `modal token info` without creating sandbox resources.
 - `sandbox quickstart --run` creates a short-lived sandbox and should be the
   first live acceptance check after credentials are configured.
 - Separate one-shot CLI commands do not share filesystem state unless they use

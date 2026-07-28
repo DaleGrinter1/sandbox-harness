@@ -2,9 +2,10 @@
 
 `modal-sandbox` helps agents run tasks that need isolated, reproducible, or
 resource-controlled execution in short-lived or reusable Modal Sandboxes. The
-plugin is the product front door and uses the public `modal-sandbox-sdk` JSON
-CLI as its execution engine. The package remains available to developers
-directly; neither layer replaces Modal's backend or full SDK.
+plugin is the main product surface and uses the public `modal-sandbox-sdk` JSON
+CLI as its execution engine. The SDK remains available to developers directly,
+but it should stay quiet and focused unless SDK changes improve plugin
+workflows. Neither layer replaces Modal's backend or full SDK.
 
 ## Target Users
 

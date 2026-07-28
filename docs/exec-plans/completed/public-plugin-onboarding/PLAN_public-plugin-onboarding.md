@@ -17,12 +17,14 @@ Make the public `modal-sandbox` plugin installable from GitHub and guide a new u
 
 ## Outcomes & Retrospective
 
-Plugin 0.2.0 now documents installation from the public GitHub marketplace,
+Plugin 0.4.0 now documents installation from the public GitHub marketplace,
 uses an isolated uv tool installation for the published CLI, checks CLI 0.4.0+
 before live work, and guides first-time users through a resource-free preview.
 Creator, focused, full no-resource, release, and exec-plan checks pass. A fresh
 Codex configuration remains the deliberate manual acceptance boundary because
-marketplace installation changes user-level Codex state.
+marketplace installation changes user-level Codex state. No automated work
+remains in this initiative; the remaining acceptance is an external manual
+check.
 
 ## Context and Orientation
 
@@ -30,7 +32,8 @@ marketplace installation changes user-level Codex state.
 - `plugins/modal-sandbox/`
 - `.agents/plugins/marketplace.json`
 - `tests/test_plugin_acceptance.py`
-- `docs/product-specs/public-plugin-onboarding.md`
+- `docs/PRODUCT_SENSE.md`
+- `docs/references/cli.md`
 
 ## Plan of Work
 

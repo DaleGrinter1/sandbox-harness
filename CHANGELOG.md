@@ -13,7 +13,7 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
   isolated, reproducible, or resource-controlled execution.
 - Added a versioned workflow-benchmark contract, adversarial trigger corpus,
   and portable plugin-owned preflight and benchmark helpers.
-- Changed the `modal-sandbox` plugin to version 0.2.0 with public GitHub
+- Changed the `modal-sandbox` plugin to version 0.4.0 with public GitHub
   marketplace installation and isolated `uv tool` CLI onboarding.
 - Added CLI 0.4.0+ compatibility checks, explicit upgrade guidance, a safe
   first-run preview, and deterministic plugin acceptance contracts.

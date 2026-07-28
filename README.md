@@ -60,6 +60,30 @@ downloaded from the GitHub marketplace, the `sandbox` engine is installed as an
 isolated PyPI tool, and distributed helpers resolve their files from the
 installed plugin directory rather than the current working directory.
 
+## Plugin Workflow Examples
+
+The plugin is the main user experience; the CLI is its JSON engine and the SDK
+is the Python implementation layer behind that engine. Distributed examples
+describe user intent, the safe discovery commands, preview command, live
+commands, cleanup commands, and approval boundary:
+
+- `plugins/modal-sandbox/examples/run-tests-safely.json`
+- `plugins/modal-sandbox/examples/debug-failing-script.json`
+- `plugins/modal-sandbox/examples/persistent-workspace.json`
+- `plugins/modal-sandbox/examples/reusable-coding-sandbox.json`
+- `plugins/modal-sandbox/examples/benchmark-two-approaches.json`
+- `plugins/modal-sandbox/examples/inspect-and-cleanup.json`
+
+Validate an example or create a starter plan without contacting Modal:
+
+```bash
+python plugins/modal-sandbox/scripts/workflow.py \
+  plugins/modal-sandbox/examples/run-tests-safely.json \
+  --validate-only
+
+python plugins/modal-sandbox/scripts/workflow.py --intent run-tests-safely
+```
+
 ## Workflow Benchmarks
 
 The plugin can validate and run bounded comparisons of equivalent workflows.
@@ -83,7 +107,7 @@ host-observed duration, command results, hashes and bounded/redacted output
 previews, failure classifications, and comparison limitations. See
 the benchmark workflow in `plugins/modal-sandbox/skills/modal-sandbox/SKILL.md`.
 
-## SDK and CLI Quick Start
+## CLI Engine And SDK
 
 To use the engine directly, install the package:
 
@@ -96,6 +120,7 @@ Check your local Modal setup without creating resources:
 ```bash
 sandbox dry
 sandbox doctor
+sandbox doctor --verify
 sandbox quickstart
 ```
 
@@ -112,6 +137,7 @@ uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
+uv run sandbox --image py313 --workspace-volume work preview run python app.py
 ```
 
 If `doctor` reports missing credentials, sign in to Modal:
@@ -125,6 +151,15 @@ If your shell cannot find the `modal` command, use:
 ```bash
 uv run python -m modal setup
 ```
+
+For a prompted local token flow, use Modal's own command:
+
+```bash
+uv run modal token set
+```
+
+`sandbox auth` prints these supported setup commands and does not accept token
+secrets as command-line arguments.
 
 Optional agent context from Modal itself is available through Modal SDK 1.5's
 skills CLI:
@@ -149,6 +184,24 @@ Then run any command:
 uv run sandbox --image py313 run "python -c 'print(123)'"
 ```
 
+For repeated project settings, add a local `sandbox.toml`:
+
+```toml
+image = "py313"
+workspace_volume = "my-project-work"
+allow_domain = ["api.openai.com"]
+
+[env]
+API_MODE = "development"
+```
+
+Then run shorter commands:
+
+```bash
+uv run sandbox preview run python app.py
+uv run sandbox run "python app.py"
+```
+
 ## Golden Paths
 
 These are the workflows this repo optimizes for and regression-tests.
@@ -160,6 +213,8 @@ uv run sandbox dry
 uv run sandbox schema
 uv run sandbox doctor
 uv run sandbox quickstart
+uv run sandbox --image py313 --workspace-volume work preview run python app.py
+uv run sandbox status
 ```
 
 Short-lived execution:
@@ -186,6 +241,14 @@ uv run sandbox --image py313 start
 uv run sandbox --sandbox-id sb-abc123 write app.py --content "print(123)"
 uv run sandbox --sandbox-id sb-abc123 run "python app.py"
 uv run sandbox stop sb-abc123
+```
+
+Inspect and clean up reusable Modal apps explicitly:
+
+```bash
+uv run sandbox status
+uv run sandbox cleanup --app modal-sandbox-sdk
+uv run sandbox cleanup --app modal-sandbox-sdk --yes
 ```
 
 Agents can also read these workflows from `uv run sandbox schema` under
@@ -460,6 +523,7 @@ Small examples live in `examples/`:
 ## More Docs
 
 - [CLI workflows](docs/references/cli.md)
+- [Beginner repo explainer](docs/references/repo-explainer-notion.md)
 - [New agent starter prompt](docs/references/new-agent-prompt.md)
 - [Cognitive-load design note](docs/design-docs/cognitive-load.md)
 - [Vercel-style SDK compatibility](docs/design-docs/vercel-style-sdk-compatibility.md)
