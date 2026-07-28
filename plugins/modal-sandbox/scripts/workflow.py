@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,97 @@ class WorkflowError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class PluginPlan:
+    """Resource boundary and commands for one plugin workflow."""
+
+    safe_commands: list[str]
+    preview_command: str
+    live_commands: list[str]
+    cleanup_commands: list[str]
+    approval_required: bool
+    resource_boundary: str
+
+    @classmethod
+    def from_payload(cls, payload: object) -> PluginPlan:
+        """Validate and build a plugin plan from JSON data."""
+        if not isinstance(payload, dict):
+            raise WorkflowError("plugin_plan must be an object")
+
+        safe_commands = _strings(payload.get("safe_commands"), "plugin_plan.safe_commands")
+        preview_command = payload.get("preview_command")
+        if not isinstance(preview_command, str) or not _is_resource_free_preview(preview_command):
+            raise WorkflowError("plugin_plan.preview_command must be a resource-free preview command")
+        live_commands = _strings(payload.get("live_commands"), "plugin_plan.live_commands", allow_empty=True)
+        cleanup_commands = _strings(
+            payload.get("cleanup_commands", []), "plugin_plan.cleanup_commands", allow_empty=True
+        )
+        approval_required = payload.get("approval_required")
+        if approval_required is not True:
+            raise WorkflowError("plugin_plan.approval_required must be true")
+        resource_boundary = payload.get("resource_boundary")
+        if not isinstance(resource_boundary, str) or "explicit" not in resource_boundary.lower():
+            raise WorkflowError("plugin_plan.resource_boundary must describe explicit approval")
+
+        return cls(
+            safe_commands=safe_commands,
+            preview_command=preview_command,
+            live_commands=live_commands,
+            cleanup_commands=cleanup_commands,
+            approval_required=approval_required,
+            resource_boundary=resource_boundary,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable plan."""
+        return {
+            "safe_commands": self.safe_commands,
+            "preview_command": self.preview_command,
+            "live_commands": self.live_commands,
+            "cleanup_commands": self.cleanup_commands,
+            "approval_required": self.approval_required,
+            "resource_boundary": self.resource_boundary,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowExample:
+    """Validated plugin workflow example."""
+
+    id: str
+    user_prompt: str
+    plugin_plan: PluginPlan
+    schema_version: str = "1"
+
+    @classmethod
+    def from_payload(cls, payload: object) -> WorkflowExample:
+        """Validate and build a workflow example from JSON data."""
+        if not isinstance(payload, dict):
+            raise WorkflowError("workflow must be a JSON object")
+        if payload.get("schema_version") != "1":
+            raise WorkflowError('schema_version must be "1"')
+        workflow_id = payload.get("id")
+        if workflow_id not in WORKFLOW_IDS:
+            raise WorkflowError(f"unsupported workflow id: {workflow_id!r}")
+        prompt = payload.get("user_prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise WorkflowError("user_prompt must be a non-empty string")
+        return cls(
+            id=workflow_id,
+            user_prompt=prompt,
+            plugin_plan=PluginPlan.from_payload(payload.get("plugin_plan")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable workflow."""
+        return {
+            "schema_version": self.schema_version,
+            "id": self.id,
+            "user_prompt": self.user_prompt,
+            "plugin_plan": self.plugin_plan.to_dict(),
+        }
+
+
 def _strings(value: object, name: str, *, allow_empty: bool = False) -> list[str]:
     if not isinstance(value, list):
         raise WorkflowError(f"{name} must be an array")
@@ -33,52 +125,18 @@ def _strings(value: object, name: str, *, allow_empty: bool = False) -> list[str
     return list(value)
 
 
+def _is_resource_free_preview(command: str) -> bool:
+    """Return whether a command is an allowed resource-free preview."""
+    return (
+        (command.startswith("sandbox ") and " preview " in f" {command} ")
+        or command.startswith("sandbox cleanup")
+        or command.startswith("python <plugin-root>/scripts/benchmark.py")
+    )
+
+
 def validate_workflow(payload: object) -> dict[str, Any]:
     """Validate one plugin workflow example."""
-    if not isinstance(payload, dict):
-        raise WorkflowError("workflow must be a JSON object")
-    if payload.get("schema_version") != "1":
-        raise WorkflowError('schema_version must be "1"')
-    workflow_id = payload.get("id")
-    if workflow_id not in WORKFLOW_IDS:
-        raise WorkflowError(f"unsupported workflow id: {workflow_id!r}")
-    prompt = payload.get("user_prompt")
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise WorkflowError("user_prompt must be a non-empty string")
-    plan = payload.get("plugin_plan")
-    if not isinstance(plan, dict):
-        raise WorkflowError("plugin_plan must be an object")
-
-    safe_commands = _strings(plan.get("safe_commands"), "plugin_plan.safe_commands")
-    preview_command = plan.get("preview_command")
-    if not isinstance(preview_command, str) or not (
-        (preview_command.startswith("sandbox ") and " preview " in f" {preview_command} ")
-        or preview_command.startswith("sandbox cleanup")
-        or preview_command.startswith("python <plugin-root>/scripts/benchmark.py")
-    ):
-        raise WorkflowError("plugin_plan.preview_command must be a resource-free preview command")
-    live_commands = _strings(plan.get("live_commands"), "plugin_plan.live_commands", allow_empty=True)
-    cleanup_commands = _strings(plan.get("cleanup_commands", []), "plugin_plan.cleanup_commands", allow_empty=True)
-    approval_required = plan.get("approval_required")
-    if approval_required is not True:
-        raise WorkflowError("plugin_plan.approval_required must be true")
-    resource_boundary = plan.get("resource_boundary")
-    if not isinstance(resource_boundary, str) or "explicit" not in resource_boundary.lower():
-        raise WorkflowError("plugin_plan.resource_boundary must describe explicit approval")
-
-    return {
-        "schema_version": "1",
-        "id": workflow_id,
-        "user_prompt": prompt,
-        "plugin_plan": {
-            "safe_commands": safe_commands,
-            "preview_command": preview_command,
-            "live_commands": live_commands,
-            "cleanup_commands": cleanup_commands,
-            "approval_required": approval_required,
-            "resource_boundary": resource_boundary,
-        },
-    }
+    return WorkflowExample.from_payload(payload).to_dict()
 
 
 def plan_from_intent(intent: str, *, command: str | None = None) -> dict[str, Any]:
