@@ -75,7 +75,15 @@ class SandboxImageSnapshot:
 
 @dataclass(frozen=True)
 class SandboxFileStat:
-    """JSON-friendly metadata for a sandbox filesystem path."""
+    """JSON-friendly metadata for a sandbox filesystem path.
+
+    Attributes:
+        path: Absolute sandbox path that was inspected.
+        kind: Provider-reported file kind, such as file or directory.
+        size: File size in bytes when the provider exposes one.
+        permissions: Provider-reported permissions string when available.
+        modified_time: Provider-reported modification time serialized as text.
+    """
 
     path: str
     kind: str
@@ -90,7 +98,12 @@ class SandboxFileStat:
 
 @dataclass(frozen=True)
 class SandboxWatchEvent:
-    """JSON-friendly filesystem watch event."""
+    """JSON-friendly filesystem watch event.
+
+    Attributes:
+        path: Sandbox path associated with the event.
+        event_type: Provider-reported event type.
+    """
 
     path: str
     event_type: str
@@ -102,7 +115,14 @@ class SandboxWatchEvent:
 
 @dataclass(frozen=True)
 class SandboxReadinessProbe:
-    """JSON-friendly Modal sandbox readiness probe specification."""
+    """JSON-friendly Modal sandbox readiness probe specification.
+
+    Attributes:
+        kind: Probe type. Supported SDK values are `tcp` and `exec`.
+        port: TCP port for `tcp` probes.
+        command: Argv-style command for `exec` probes.
+        interval_ms: Polling interval in milliseconds.
+    """
 
     kind: str
     port: int | None = None
@@ -111,7 +131,18 @@ class SandboxReadinessProbe:
 
     @classmethod
     def tcp(cls, port: int, *, interval_ms: int = 100) -> SandboxReadinessProbe:
-        """Create a TCP readiness probe specification."""
+        """Create a TCP readiness probe specification.
+
+        Args:
+            port: TCP port to probe inside the sandbox.
+            interval_ms: Polling interval in milliseconds.
+
+        Returns:
+            Readiness probe specification suitable for `Sandbox.create`.
+
+        Raises:
+            ValueError: If `port` or `interval_ms` is invalid.
+        """
         if not isinstance(port, int) or isinstance(port, bool) or port <= 0 or port > 65535:
             raise ValueError("readiness TCP port must be an integer between 1 and 65535.")
         _validate_readiness_interval(interval_ms)
@@ -119,7 +150,18 @@ class SandboxReadinessProbe:
 
     @classmethod
     def exec(cls, command: tuple[str, ...] | list[str], *, interval_ms: int = 100) -> SandboxReadinessProbe:
-        """Create an argv-style exec readiness probe specification."""
+        """Create an argv-style exec readiness probe specification.
+
+        Args:
+            command: Command argv run by Modal to determine readiness.
+            interval_ms: Polling interval in milliseconds.
+
+        Returns:
+            Readiness probe specification suitable for `Sandbox.create`.
+
+        Raises:
+            ValueError: If `command` is empty or `interval_ms` is invalid.
+        """
         _validate_readiness_interval(interval_ms)
         normalized = tuple(str(part) for part in command)
         if not normalized:

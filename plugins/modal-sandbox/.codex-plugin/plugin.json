@@ -1,6 +1,6 @@
 {
   "name": "modal-sandbox",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Run isolated, reproducible, or resource-controlled tasks in Modal Sandboxes through the modal-sandbox-sdk CLI.",
   "author": {
     "name": "DaleGrinter1",

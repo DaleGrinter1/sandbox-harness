@@ -220,6 +220,7 @@ def validate_volume_mounts(volumes: Sequence[SandboxVolume]) -> None:
     seen: set[str] = set()
 
     def add_mount(mount_path: str) -> None:
+        """Record one normalized mount path and reject duplicates."""
         normalized = mount_path.rstrip("/") or "/"
         if normalized in seen:
             raise SandboxConfigurationError(f"Duplicate sandbox volume mount path: {normalized}")

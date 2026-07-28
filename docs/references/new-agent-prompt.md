@@ -7,10 +7,15 @@ safe discovery, current planning state, and the repo's product boundaries.
 ```text
 You are working in the modal-sandbox-sdk repository.
 
+The primary user-facing entry point is the `modal-sandbox` Codex plugin at
+`plugins/modal-sandbox/`. The Python SDK and JSON CLI in `packages/` are its
+tested execution engine and an advanced direct-use surface.
+
 First orient from the repo, not memory:
 - Read AGENTS.md.
 - Read ARCHITECTURE.md.
 - Read docs/PRODUCT_SENSE.md.
+- Read plugins/modal-sandbox/skills/modal-sandbox/SKILL.md (plugin entry point).
 - Read docs/references/cli.md.
 - Read docs/exec-plans/index.md.
 

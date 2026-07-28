@@ -182,7 +182,7 @@ def test_modal_sandbox_plugin_identity_and_marketplace_contract() -> None:
     marketplace = json.loads(Path(".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
 
     assert manifest["name"] == plugin_root.name == "modal-sandbox"
-    assert manifest["version"] == "0.3.0"
+    assert manifest["version"] == "0.4.0"
     assert manifest["license"] == "MIT"
     assert manifest["repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
     assert manifest["skills"] == "./skills/"
@@ -260,7 +260,7 @@ def test_plugin_docs_record_schema_compatibility_and_new_thread_install_flow() -
     assert "codex plugin marketplace add DaleGrinter1/sandbox-harness" in readme
     assert "codex plugin add modal-sandbox@personal" in readme
     assert "Start a new Codex thread" in readme
-    assert "plugin `0.3.x` is tested against CLI schema version `1`" in development
+    assert "plugin `0.4.x` is tested against CLI schema version `1`" in development
     assert "update-plugin-cachebuster.py" in development
 
 

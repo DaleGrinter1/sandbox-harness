@@ -139,6 +139,7 @@ class SandboxCommand:
 
 
 def _decode_log_chunk(value: object) -> str:
+    """Normalize detached command log chunks into text."""
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)

@@ -51,7 +51,7 @@ Then check the built package metadata and install path:
 
 The release check also validates the repo-local marketplace, plugin manifest,
 and skill contract. Plugin releases are independent from package releases;
-plugin `0.3.x` is tested against CLI schema version `1`, not one exact package
+plugin `0.4.x` is tested against CLI schema version `1`, not one exact package
 version.
 
 The distributed plugin owns portable Python orchestration under

@@ -1028,12 +1028,23 @@ class ModalSandboxProvider:
         )
 
     def unmount_image(self, path: str) -> None:
-        """Unmount a Modal image from a sandbox path."""
+        """Unmount a Modal image from a sandbox path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox mount path.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         self._modal_call(lambda: self._sandbox.unmount_image(remote_path), context=f"unmounting image at {remote_path}")
 
     def stat(self, path: str) -> SandboxFileStat:
-        """Return metadata for a sandbox filesystem path."""
+        """Return metadata for a sandbox filesystem path.
+
+        Args:
+            path: Relative workspace path, or absolute sandbox path.
+
+        Returns:
+            JSON-friendly file metadata.
+        """
         remote_path = sandbox_path(path, self.config.workspace)
         info = self._modal_call(lambda: self.filesystem.stat(remote_path), context=f"stating {remote_path}")
         return _file_stat_metadata(info, path=remote_path)
@@ -1069,13 +1080,25 @@ class ModalSandboxProvider:
             raise_provider_error(exc, context=f"watching {remote_path}")
 
     def sync_workspace(self) -> CommandResult:
-        """Persist workspace-volume changes without waiting for termination."""
+        """Persist workspace-volume changes without waiting for termination.
+
+        Returns:
+            Command result for the remote `sync` invocation.
+
+        Raises:
+            SandboxConfigurationError: If the workspace is not backed by a
+                named Modal volume.
+        """
         if _workspace_volume_name(self.config) is None:
             raise SandboxConfigurationError("sync_workspace requires a string workspace volume.")
         return self.run_command("sync", [self.config.workspace])
 
     def wait_until_ready(self, *, timeout: int = 300) -> None:
-        """Wait until the sandbox readiness probe succeeds."""
+        """Wait until the sandbox readiness probe succeeds.
+
+        Args:
+            timeout: Maximum seconds to wait for Modal readiness.
+        """
         self._modal_call(
             lambda: self._sandbox.wait_until_ready(timeout=timeout),
             context="waiting for Modal sandbox readiness",

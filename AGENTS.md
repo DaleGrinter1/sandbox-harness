@@ -6,13 +6,12 @@
 2. `ARCHITECTURE.md`
 3. `docs/PLANS.md`
 4. `docs/design-docs/index.md`
-5. Relevant product spec under `docs/product-specs`
-6. Relevant execution plan under `docs/exec-plans/active/`
+5. Relevant execution plan under `docs/exec-plans/active/`
 
 ## Canonical Path Map
 
 - Architecture: `ARCHITECTURE.md`
-- Product intent: `docs/PRODUCT_SENSE.md`, `docs/product-specs`
+- Product intent: `docs/PRODUCT_SENSE.md`
 - New agent prompt: `docs/references/new-agent-prompt.md`
 - Design docs: `docs/design-docs/`
 - Execution plans: `docs/exec-plans/`
@@ -27,7 +26,7 @@
 - CLI changes: read `docs/references/cli.md`, `docs/exec-plans/index.md`, and update CLI schema/tests together.
 - Modal provider changes: read `docs/references/modal-setup.md`, provider tests, and keep live Modal tests opt-in.
 - Docs/governance changes: read `docs/PLANS.md`, `docs/design-docs/index.md`, and `docs/exec-plans/index.md`.
-- Product/API behavior changes: read the index in `docs/product-specs` and update examples/docs.
+- Product/API behavior changes: read `docs/PRODUCT_SENSE.md`, `docs/design-docs/`, and update examples, docs, and plugin skill.
 
 ## Execution Planning
 
@@ -45,7 +44,6 @@ Use markdown for the narrative plan only. Implementation checklist and handoff s
 ## Deprecated Paths
 
 - Do not create or use the legacy dot-agent planning directory.
-- Do not create or use the legacy top-level specs directory; product specs live in `docs/product-specs`.
 - Do not create markdown task files or `tasks/` directories for active work unless a human explicitly asks.
 
 ## Validation

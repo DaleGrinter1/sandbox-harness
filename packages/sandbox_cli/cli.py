@@ -545,6 +545,7 @@ def _parse_env(values: list[str]) -> dict[str, str]:
 
 
 def _positive_int(value: str) -> int:
+    """Parse a positive integer argparse value."""
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -555,6 +556,7 @@ def _positive_int(value: str) -> int:
 
 
 def _non_negative_int(value: str) -> int:
+    """Parse a non-negative integer argparse value."""
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -565,6 +567,7 @@ def _non_negative_int(value: str) -> int:
 
 
 def _positive_float(value: str) -> float:
+    """Parse a positive floating-point argparse value."""
     try:
         parsed = float(value)
     except ValueError as exc:
@@ -575,6 +578,7 @@ def _positive_float(value: str) -> float:
 
 
 def _port(value: str) -> int:
+    """Parse a TCP/UDP port argparse value."""
     parsed = _positive_int(value)
     if parsed > 65535:
         raise argparse.ArgumentTypeError("port must be an integer between 1 and 65535")
@@ -582,12 +586,14 @@ def _port(value: str) -> int:
 
 
 def _absolute_sandbox_path(value: str) -> str:
+    """Parse an absolute sandbox path argparse value."""
     if not value or not value.startswith("/"):
         raise argparse.ArgumentTypeError("value must be an absolute sandbox path")
     return value
 
 
 def _non_empty_value(value: str) -> str:
+    """Normalize a non-empty argparse string value."""
     normalized = value.strip()
     if not normalized:
         raise argparse.ArgumentTypeError("value must not be empty")
@@ -595,6 +601,7 @@ def _non_empty_value(value: str) -> str:
 
 
 def _public_http_url(value: str) -> str:
+    """Parse a public HTTP(S) URL argparse value."""
     normalized = _non_empty_value(value)
     from urllib.parse import urlparse
 
@@ -607,6 +614,7 @@ def _public_http_url(value: str) -> str:
 
 
 def _watch_event(value: str) -> str:
+    """Parse a Modal watch event filter name."""
     normalized = _non_empty_value(value)
     if not all(character.isalnum() or character in "_-" for character in normalized):
         raise argparse.ArgumentTypeError("watch event names may only contain letters, numbers, dashes, and underscores")
@@ -614,6 +622,7 @@ def _watch_event(value: str) -> str:
 
 
 def _readiness_exec(value: str) -> tuple[str, ...]:
+    """Parse a readiness exec command into argv parts."""
     normalized = _non_empty_value(value)
     try:
         parts = tuple(shlex.split(normalized))
@@ -625,6 +634,7 @@ def _readiness_exec(value: str) -> tuple[str, ...]:
 
 
 def _sandbox_name(value: str) -> str:
+    """Parse a Modal sandbox name argparse value."""
     normalized = _non_empty_value(value)
     if len(normalized) > 63:
         raise argparse.ArgumentTypeError("sandbox name must be shorter than 64 characters")
@@ -636,6 +646,7 @@ def _sandbox_name(value: str) -> str:
 
 
 def _parse_tag(value: str) -> tuple[str, str]:
+    """Parse a repeated `--tag KEY=VALUE` flag."""
     if "=" not in value:
         raise argparse.ArgumentTypeError("--tag values must use KEY=VALUE")
     key, tag_value = value.split("=", 1)
@@ -646,6 +657,7 @@ def _parse_tag(value: str) -> tuple[str, str]:
 
 
 def _domain_allowlist_value(value: str) -> str:
+    """Parse one outbound domain allowlist value."""
     normalized = _non_empty_value(value)
     if any(character.isspace() for character in normalized):
         raise argparse.ArgumentTypeError("value must not contain whitespace")
@@ -674,6 +686,7 @@ def _domain_allowlist_value(value: str) -> str:
 
 
 def _cidr_allowlist_value(value: str) -> str:
+    """Parse one CIDR allowlist value."""
     normalized = _non_empty_value(value)
     if "/" not in normalized:
         raise argparse.ArgumentTypeError("value must be a CIDR range")
@@ -685,6 +698,7 @@ def _cidr_allowlist_value(value: str) -> str:
 
 
 def _parse_volume(value: str) -> SandboxVolume:
+    """Parse a `--volume NAME:/absolute/path` flag."""
     if ":" not in value:
         raise argparse.ArgumentTypeError("--volume values must use NAME:/absolute/path")
     name, mount_path = value.split(":", 1)
@@ -696,12 +710,14 @@ def _parse_volume(value: str) -> SandboxVolume:
 
 
 def _resolve_cli_image(image: str | None) -> str | None:
+    """Resolve a CLI image alias into a registry image tag."""
     if image is None:
         return None
     return IMAGE_ALIASES.get(image.lower(), image)
 
 
 def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
+    """Build SDK volume declarations from global CLI flags."""
     volumes = list(args.volume)
     if args.workspace_volume:
         volumes.insert(0, SandboxVolume.workspace(args.workspace_volume, workspace=args.workspace))
@@ -709,6 +725,7 @@ def _volumes_from_args(args: argparse.Namespace) -> tuple[SandboxVolume, ...]:
 
 
 def _readiness_probe_from_args(args: argparse.Namespace) -> SandboxReadinessProbe | None:
+    """Build an SDK readiness probe from CLI flags when one is requested."""
     if args.readiness_tcp is not None:
         return SandboxReadinessProbe.tcp(args.readiness_tcp, interval_ms=args.readiness_interval_ms)
     if args.readiness_exec is not None:
@@ -717,7 +734,20 @@ def _readiness_probe_from_args(args: argparse.Namespace) -> SandboxReadinessProb
 
 
 def _sandbox_from_args(args: argparse.Namespace, *, sandbox_id: str | None | object = _USE_ARG_SANDBOX_ID) -> Sandbox:
-    """Create a sandbox from parsed CLI flags."""
+    """Create or attach to a sandbox from parsed CLI flags.
+
+    Args:
+        args: Parsed CLI namespace.
+        sandbox_id: Override used by subcommands whose positional sandbox ID
+            should take precedence over the global `--sandbox-id` flag.
+
+    Returns:
+        SDK sandbox object for the command handler.
+
+    Raises:
+        argparse.ArgumentTypeError: If mutually exclusive attach flags are
+            combined.
+    """
     effective_sandbox_id = cast(str | None, args.sandbox_id if sandbox_id is _USE_ARG_SANDBOX_ID else sandbox_id)
     if effective_sandbox_id is not None and args.sandbox_name:
         raise argparse.ArgumentTypeError("--sandbox-id cannot be combined with --sandbox-name")
@@ -865,7 +895,15 @@ def _require_sandbox_id(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 
 def _preflight_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    """Reject invalid lifecycle combinations before creating Modal resources."""
+    """Reject invalid lifecycle combinations before creating Modal resources.
+
+    Args:
+        args: Parsed CLI namespace.
+        parser: Parser used to emit JSON argument errors.
+
+    Raises:
+        SystemExit: If an invalid combination is detected.
+    """
     if args.sandbox_id and args.sandbox_name:
         parser.error("--sandbox-id cannot be used with --sandbox-name")
     if args.name and args.sandbox_name:
@@ -984,6 +1022,13 @@ def _write_modal_toml(config_path: Path, profile: str, token_id: str, token_secr
 
     Reads any existing profiles first so other sections are preserved.
     Non-string values already in the file are written back with repr().
+
+    Args:
+        config_path: Modal config path to create or update.
+        profile: Profile section name to write.
+        token_id: Modal token ID.
+        token_secret: Modal token secret.
+        force: Whether to overwrite an existing profile.
 
     Raises:
         ValueError: When the profile already exists and force is False.

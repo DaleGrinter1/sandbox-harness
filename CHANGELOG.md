@@ -7,6 +7,8 @@ version and use short bullets under Added, Changed, Fixed, or Removed.
 
 ## Unreleased
 
+## 0.4.1 - 2026-07-28
+
 - Broadened the plugin from coding-specific prompts to tasks that need
   isolated, reproducible, or resource-controlled execution.
 - Added a versioned workflow-benchmark contract, adversarial trigger corpus,

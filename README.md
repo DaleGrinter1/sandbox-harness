@@ -81,7 +81,7 @@ python <plugin-root>/scripts/benchmark.py scenario.json --allow-live
 The report includes declared runtime controls, warmups, measured repetitions,
 host-observed duration, command results, hashes and bounded/redacted output
 previews, failure classifications, and comparison limitations. See
-[the workflow benchmarking contract](docs/product-specs/sandbox-workflow-benchmarking.md).
+the benchmark workflow in `plugins/modal-sandbox/skills/modal-sandbox/SKILL.md`.
 
 ## SDK and CLI Quick Start
 
