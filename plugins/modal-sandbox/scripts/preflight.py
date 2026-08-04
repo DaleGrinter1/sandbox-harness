@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 REQUIRED_SCHEMA_VERSION = "1"
-DEFAULT_MIN_VERSION = "0.4.0"
+DEFAULT_MIN_VERSION = "0.4.1"
 
 
 @dataclass

@@ -1,18 +1,38 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "persistent-workspace",
   "user_prompt": "Use $modal-sandbox to run separate jobs while keeping generated files in one remote workspace.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["write", "run", "read", "stat", "sync", "snapshot", "status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "sandbox --workspace-volume work preview run python app.py",
+    "preview_commands": [
+      "sandbox --workspace-volume work preview write app.py --content-file app.py",
+      "sandbox --workspace-volume work preview run \"python app.py\""
+    ],
     "live_commands": [
       "sandbox --workspace-volume work write app.py --content-file app.py",
-      "sandbox --workspace-volume work run python app.py",
-      "sandbox --workspace-volume work read output.txt"
+      "sandbox --workspace-volume work run \"python app.py\""
     ],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "verification_commands": [
+      "sandbox --workspace-volume work read output.txt",
+      "sandbox --workspace-volume work stat output.txt",
+      "sandbox --workspace-volume work sync",
+      "sandbox --workspace-volume work snapshot"
+    ],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
     "approval_required": true,
-    "resource_boundary": "Live Modal commands require explicit user approval."
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["exit_code", "stdout", "stderr", "volume_name"],
+    "recovery_guidance": {
+      "remote_nonzero": "Report the failed command before attempting verification.",
+      "truncated_output": "Use read or download for the intended artifact instead of inferring its content.",
+      "cleanup_failure": "Keep the named volume unless the user separately authorizes deleting persistent data."
+    },
+    "resource_boundary": "Live Modal commands and destructive cleanup require explicit user approval."
   }
 }
-

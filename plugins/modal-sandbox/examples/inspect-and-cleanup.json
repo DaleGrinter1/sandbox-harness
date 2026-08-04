@@ -1,13 +1,23 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "inspect-and-cleanup",
   "user_prompt": "Use $modal-sandbox to inspect and clean up reusable sandbox resources.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "sandbox cleanup --app modal-sandbox-sdk",
+    "preview_commands": ["sandbox cleanup --app modal-sandbox-sdk"],
     "live_commands": ["sandbox cleanup --app modal-sandbox-sdk --yes"],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "verification_commands": ["sandbox status"],
+    "cleanup_commands": [],
     "approval_required": true,
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["status", "results"],
+    "recovery_guidance": {
+      "invalid_arguments": "Resolve an explicit app identifier before cleanup.",
+      "remote_nonzero": "Report each resource that did not stop.",
+      "cleanup_failure": "Report the remaining app identifier and exact cleanup command."
+    },
     "resource_boundary": "Stopping Modal apps requires explicit user approval."
   }
 }

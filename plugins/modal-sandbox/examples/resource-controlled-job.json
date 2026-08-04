@@ -1,0 +1,32 @@
+{
+  "schema_version": "2",
+  "id": "resource-controlled-job",
+  "user_prompt": "Use $modal-sandbox to run this job with declared compute limits and blocked network access.",
+  "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["run", "status", "cleanup"],
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_commands": [
+      "sandbox --cpu 1 --memory 1024 --block-network preview run \"python job.py\""
+    ],
+    "live_commands": [
+      "sandbox --cpu 1 --memory 1024 --block-network run \"python job.py\""
+    ],
+    "verification_commands": [],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
+    "approval_required": true,
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["exit_code", "stdout", "stderr", "timed_out"],
+    "recovery_guidance": {
+      "invalid_arguments": "Correct conflicting network or resource controls and preview again.",
+      "remote_nonzero": "Report the controlled job result without silently relaxing limits.",
+      "timeout": "Change runtime or resource bounds only with user approval.",
+      "cleanup_failure": "Report the remaining resource identifier and cleanup command."
+    },
+    "resource_boundary": "Resource-controlled execution and destructive cleanup require explicit user approval."
+  }
+}

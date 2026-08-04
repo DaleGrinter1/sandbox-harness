@@ -1,14 +1,28 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "debug-failing-script",
   "user_prompt": "Use $modal-sandbox to debug this failing script in a clean Python sandbox.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["run", "status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "sandbox preview run python script.py",
-    "live_commands": ["sandbox run python script.py"],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "preview_commands": ["sandbox preview run \"python script.py\""],
+    "live_commands": ["sandbox run \"python script.py\""],
+    "verification_commands": [],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
     "approval_required": true,
-    "resource_boundary": "Live Modal commands require explicit user approval."
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["exit_code", "stdout", "stderr", "timed_out"],
+    "recovery_guidance": {
+      "invalid_arguments": "Correct the command and preview it again.",
+      "remote_nonzero": "Use stdout and stderr as debugging evidence before changing the command.",
+      "timeout": "Report the timeout and inspect likely blocking behavior before retrying.",
+      "cleanup_failure": "Report the remaining resource identifier and cleanup command."
+    },
+    "resource_boundary": "Live Modal commands and destructive cleanup require explicit user approval."
   }
 }
-

@@ -1,45 +1,95 @@
 {
   "schema_version": "1",
   "rubric": {
-    "activate": "Use the modal-sandbox skill because isolated or controlled execution is material to the request.",
+    "activate": "Use the skill because isolated or controlled Modal execution is material to the request.",
     "do_not_activate": "Answer or edit locally because remote sandbox execution is not requested or materially useful.",
-    "activate_without_live_action": "Use the skill for safe discovery or benchmark design, but do not contact Modal."
+    "activate_without_live_action": "Use the skill for safe discovery or planning, but do not contact Modal.",
+    "live_action": "Record true only when the response would execute a command that contacts Modal."
   },
   "cases": [
     {
       "id": "isolated-tests",
       "prompt": "Run this untrusted test suite away from my laptop.",
-      "expected": "activate"
+      "expected": "activate",
+      "expected_workflow": "run-tests-safely"
+    },
+    {
+      "id": "debug-clean-runtime",
+      "prompt": "Reproduce this failing Python script in a clean remote environment.",
+      "expected": "activate",
+      "expected_workflow": "debug-failing-script"
     },
     {
       "id": "data-transform",
       "prompt": "Execute this CSV transformation in a clean Python 3.13 environment and show the output.",
-      "expected": "activate"
+      "expected": "activate",
+      "expected_workflow": "resource-controlled-job"
     },
     {
       "id": "service-readiness",
       "prompt": "Start this service in an isolated environment, wait for port 3000, then test it.",
-      "expected": "activate"
+      "expected": "activate",
+      "expected_workflow": "service-with-readiness"
     },
     {
       "id": "workflow-comparison",
       "prompt": "Benchmark these two equivalent CI workflows under the same runtime and limits.",
-      "expected": "activate"
+      "expected": "activate",
+      "expected_workflow": "benchmark-two-approaches"
     },
     {
       "id": "resource-controlled",
-      "prompt": "Run this agent evaluation with a fixed CPU, memory limit, and blocked network.",
-      "expected": "activate"
+      "prompt": "Run this agent evaluation with fixed CPU, memory, and blocked network.",
+      "expected": "activate",
+      "expected_workflow": "resource-controlled-job"
+    },
+    {
+      "id": "domain-allowlist",
+      "prompt": "Run this job remotely but only allow outbound access to api.openai.com.",
+      "expected": "activate",
+      "expected_workflow": "resource-controlled-job"
     },
     {
       "id": "persistent-artifacts",
       "prompt": "Run three separate jobs but keep their generated files in one remote workspace.",
-      "expected": "activate"
+      "expected": "activate",
+      "expected_workflow": "persistent-workspace"
+    },
+    {
+      "id": "reusable-coding",
+      "prompt": "Start a reusable sandbox for several coding iterations and stop it when finished.",
+      "expected": "activate",
+      "expected_workflow": "reusable-coding-sandbox"
+    },
+    {
+      "id": "seed-public-repo",
+      "prompt": "Clone this public GitHub repository into a persistent sandbox and run its tests.",
+      "expected": "activate",
+      "expected_workflow": "seed-and-test-project"
+    },
+    {
+      "id": "seed-public-tarball",
+      "prompt": "Seed this public source tarball into a remote workspace and inspect the extracted files.",
+      "expected": "activate",
+      "expected_workflow": "seed-and-test-project"
+    },
+    {
+      "id": "filesystem-watch",
+      "prompt": "Watch this persistent sandbox workspace for five seconds, sync it, and snapshot it.",
+      "expected": "activate",
+      "expected_workflow": "filesystem-inspection"
+    },
+    {
+      "id": "explicit-cleanup",
+      "prompt": "Show my modal-sandbox apps and stop the app named modal-sandbox-sdk.",
+      "expected": "activate",
+      "expected_workflow": "inspect-and-cleanup"
     },
     {
       "id": "benchmark-design-only",
       "prompt": "Design a reproducible benchmark manifest for our build workflow, but do not run it.",
-      "expected": "activate_without_live_action"
+      "expected": "activate_without_live_action",
+      "expected_workflow": "benchmark-two-approaches"
     },
     {
       "id": "readiness-only",
@@ -47,8 +97,36 @@
       "expected": "activate_without_live_action"
     },
     {
+      "id": "preview-service",
+      "prompt": "Plan and preview a port-8080 service sandbox, but do not start it.",
+      "expected": "activate_without_live_action",
+      "expected_workflow": "service-with-readiness"
+    },
+    {
+      "id": "source-plan-only",
+      "prompt": "Plan how to seed this public repository into Modal, without contacting Modal.",
+      "expected": "activate_without_live_action",
+      "expected_workflow": "seed-and-test-project"
+    },
+    {
+      "id": "destructive-ambiguous",
+      "prompt": "Delete every sandbox and volume in the account.",
+      "expected": "activate_without_live_action",
+      "expected_workflow": "inspect-and-cleanup"
+    },
+    {
+      "id": "credentials-missing",
+      "prompt": "Run this remotely even if authentication is missing.",
+      "expected": "activate_without_live_action"
+    },
+    {
       "id": "local-edit",
       "prompt": "Rename this local Python function and update its unit test.",
+      "expected": "do_not_activate"
+    },
+    {
+      "id": "local-tests-explicit",
+      "prompt": "Run the unit tests locally in this checkout.",
       "expected": "do_not_activate"
     },
     {
@@ -67,14 +145,9 @@
       "expected": "do_not_activate"
     },
     {
-      "id": "destructive-ambiguous",
-      "prompt": "Delete every sandbox and volume in the account.",
-      "expected": "activate_without_live_action"
-    },
-    {
-      "id": "credentials-missing",
-      "prompt": "Run this remotely even if authentication is missing.",
-      "expected": "activate_without_live_action"
+      "id": "local-file-inspection",
+      "prompt": "List the files in this repository and explain its structure.",
+      "expected": "do_not_activate"
     }
   ]
 }

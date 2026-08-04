@@ -4,10 +4,11 @@ Execution plans are durable artifacts for long-running or cross-cutting work.
 
 ## Active
 
-None. See Completed for the most recent initiatives.
+- None.
 
 ## Completed
 
+- [Plugin Maturity](completed/plugin-maturity/PLAN_plugin-maturity.md)
 - [Assessment Remediation](completed/assessment-remediation/PLAN_assessment-remediation.md)
 - [Plugin-First Product](completed/plugin-first-product/PLAN_plugin-first-product.md)
 - [Modal Native Sandbox Expansion](completed/modal-native-sandbox-expansion/PLAN_modal-native-sandbox-expansion.md)

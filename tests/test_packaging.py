@@ -121,6 +121,10 @@ def test_release_readiness_files_are_present() -> None:
     assert "repository-independent plugin smoke" in release_check
     assert "scripts/preflight.py" in release_check
     assert "scripts/benchmark.py" in release_check
+    assert "scripts/workflow.py" in release_check
+    assert "scripts/evaluate.py" in release_check
+    assert "quick_validate.py" in release_check
+    assert "validate_plugin.py" in release_check
     assert "id-token: write" in publish_workflow
     assert "run: bash scripts/dev/release-check.sh" in publish_workflow
     assert "run: bash scripts/dev/release-check.sh" in testpypi_workflow
@@ -182,11 +186,12 @@ def test_modal_sandbox_plugin_identity_and_marketplace_contract() -> None:
     marketplace = json.loads(Path(".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
 
     assert manifest["name"] == plugin_root.name == "modal-sandbox"
-    assert manifest["version"] == "0.4.0"
+    assert manifest["version"] == "0.4.1"
     assert manifest["license"] == "MIT"
     assert manifest["repository"] == "https://github.com/DaleGrinter1/sandbox-harness"
     assert manifest["skills"] == "./skills/"
     assert manifest["interface"]["category"] == "Developer Tools"
+    assert len(manifest["interface"]["defaultPrompt"]) <= 3
     assert "mcpServers" not in manifest
     assert "apps" not in manifest
     assert "hooks" not in manifest
@@ -211,24 +216,25 @@ def test_public_skill_encodes_cli_prerequisite_and_safe_workflows() -> None:
     frontmatter = skill.split("---", 2)[1].strip()
     assert frontmatter.startswith("name: modal-sandbox\n")
     assert "isolated, reproducible, or resource-controlled execution" in frontmatter
-    assert "controlled workflow benchmarks" in frontmatter
+    assert "controlled benchmarks" in frontmatter
     assert "uv tool install modal-sandbox-sdk" in skill
     assert "uv tool upgrade modal-sandbox-sdk" in skill
-    assert "0.4.0 or newer" in skill
-    assert "Do not install the package silently" in skill
+    assert "0.4.1 or newer" in skill
+    assert "install or upgrade packages without explicit approval" in skill
     assert "sandbox dry" in skill
     assert "sandbox doctor" in skill
     assert "sandbox schema --agent" in skill
     assert "doctor.credentials.complete" in skill
-    assert "Use `sandbox run` or `sandbox run-command`" in skill
-    assert "--workspace-volume NAME" in skill
-    assert "--name NAME start" in skill
-    assert "Stop an agent-created reusable" in skill
-    assert "A nonzero sandbox command exit is a" in skill
-    assert "Discovery, explanation, and planning requests do not" in skill
+    assert "--check-compatibility" in skill
+    assert "status is `ready`" in skill
+    assert "preview_commands" in skill
+    assert "verification_commands" in skill
+    assert "cleanup command containing `--yes`" in skill
     assert "scripts/preflight.py" in skill
     assert "scripts/benchmark.py" in skill
     assert "scripts/workflow.py" in skill
+    assert "workflow-recipes.md" in skill
+    assert "results-and-recovery.md" in skill
     assert "--validate-only" in skill
     assert "--allow-live" in skill
     assert 'default_prompt: "Use $modal-sandbox' in openai_yaml
@@ -239,17 +245,26 @@ def test_plugin_distributes_portable_scripts_examples_and_evals() -> None:
     preflight = (plugin_root / "scripts/preflight.py").read_text(encoding="utf-8")
     benchmark = (plugin_root / "scripts/benchmark.py").read_text(encoding="utf-8")
     workflow = (plugin_root / "scripts/workflow.py").read_text(encoding="utf-8")
+    evaluate = (plugin_root / "scripts/evaluate.py").read_text(encoding="utf-8")
     example = json.loads((plugin_root / "examples/python-json-workflow.json").read_text(encoding="utf-8"))
     workflow_example = json.loads((plugin_root / "examples/run-tests-safely.json").read_text(encoding="utf-8"))
     corpus = json.loads((plugin_root / "evals/skill-trigger-corpus.json").read_text(encoding="utf-8"))
+    workflow_reference = plugin_root / "skills/modal-sandbox/references/workflow-recipes.md"
+    recovery_reference = plugin_root / "skills/modal-sandbox/references/results-and-recovery.md"
 
     assert preflight.startswith("#!/usr/bin/env python3")
     assert benchmark.startswith("#!/usr/bin/env python3")
     assert workflow.startswith("#!/usr/bin/env python3")
-    assert "uv run" not in preflight + benchmark + workflow
+    assert evaluate.startswith("#!/usr/bin/env python3")
+    assert "uv run" not in preflight + benchmark + workflow + evaluate
     assert example["schema_version"] == "1"
+    assert workflow_example["schema_version"] == "2"
     assert workflow_example["plugin_plan"]["approval_required"] is True
+    assert workflow_example["plugin_plan"]["required_cli_schema"] == "1"
+    assert workflow_reference.is_file()
+    assert recovery_reference.is_file()
     assert corpus["schema_version"] == "1"
+    assert len(corpus["cases"]) >= 25
     assert {case["expected"] for case in corpus["cases"]} == {
         "activate",
         "activate_without_live_action",
@@ -266,6 +281,8 @@ def test_plugin_docs_record_schema_compatibility_and_new_thread_install_flow() -
     assert "codex plugin add modal-sandbox@personal" in readme
     assert "Start a new Codex thread" in readme
     assert "plugin `0.4.x` is tested against CLI schema version `1`" in development
+    assert "workflow schema version `2`" in development
+    assert "CLI 0.4.1 or newer" in development
     assert "update-plugin-cachebuster.py" in development
 
 

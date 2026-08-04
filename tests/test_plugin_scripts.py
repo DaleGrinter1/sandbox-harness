@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
+from sandbox_cli.parser import build_parser
 
 PLUGIN_ROOT = Path(__file__).parents[1] / "plugins" / "modal-sandbox"
 SCRIPTS_ROOT = PLUGIN_ROOT / "scripts"
@@ -40,6 +42,11 @@ def workflow_module() -> ModuleType:
     return _load_module("modal_sandbox_plugin_workflow", SCRIPTS_ROOT / "workflow.py")
 
 
+@pytest.fixture
+def evaluation_module() -> ModuleType:
+    return _load_module("modal_sandbox_plugin_evaluate", SCRIPTS_ROOT / "evaluate.py")
+
+
 def _completed(
     arguments: list[str], payload: dict[str, Any] | None = None, *, stdout: str = ""
 ) -> subprocess.CompletedProcess[str]:
@@ -56,7 +63,7 @@ def test_preflight_runs_only_resource_free_commands(
     def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         calls.append(command)
         if command[-1] == "--version":
-            return _completed(command, stdout="sandbox 0.4.0\n")
+            return _completed(command, stdout="sandbox 0.4.1\n")
         if command[-1] == "doctor":
             return _completed(command, {"credentials": {"complete": True, "verified": False}})
         if command[-2:] == ["schema", "--agent"]:
@@ -87,8 +94,8 @@ def test_preflight_runs_only_resource_free_commands(
 @pytest.mark.parametrize(
     ("version", "schema_version", "error_code"),
     [
-        ("0.3.9", "1", "cli_outdated"),
-        ("0.4.0", "2", "incompatible_cli_schema"),
+        ("0.4.0", "1", "cli_outdated"),
+        ("0.4.1", "2", "incompatible_cli_schema"),
     ],
 )
 def test_preflight_rejects_incompatible_cli(
@@ -117,7 +124,7 @@ def test_preflight_rejects_incompatible_cli(
 def test_preflight_rejects_malformed_cli_json(preflight_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         if command[-1] == "--version":
-            return _completed(command, stdout="sandbox 0.4.0\n")
+            return _completed(command, stdout="sandbox 0.4.1\n")
         return _completed(command, stdout="not-json")
 
     monkeypatch.setattr(preflight_module.subprocess, "run", fake_run)
@@ -153,8 +160,12 @@ def test_workflow_examples_validate_without_modal(workflow_module: ModuleType) -
         if "plugin_plan" not in payload:
             continue
         workflow = workflow_module.validate_workflow(payload)
+        assert workflow["schema_version"] == "2"
         assert workflow["plugin_plan"]["approval_required"] is True
-        assert workflow["plugin_plan"]["preview_command"]
+        assert workflow["plugin_plan"]["preview_commands"]
+        assert workflow["plugin_plan"]["required_capabilities"]
+        assert workflow["plugin_plan"]["expected_result_fields"]
+        assert workflow["plugin_plan"]["recovery_guidance"]
 
 
 def test_workflow_planner_emits_resource_free_plan(tmp_path: Path) -> None:
@@ -177,7 +188,193 @@ def test_workflow_planner_emits_resource_free_plan(tmp_path: Path) -> None:
     payload = json.loads(completed.stdout)
     assert payload["status"] == "planned"
     assert payload["resource_free"] is True
+    assert payload["schema_version"] == "2"
     assert payload["workflow"]["plugin_plan"]["approval_required"] is True
+    assert payload["workflow"]["plugin_plan"]["preview_commands"] == ["sandbox preview run 'python -m pytest'"]
+
+
+def test_workflow_v1_normalizes_to_v2(workflow_module: ModuleType) -> None:
+    legacy = {
+        "schema_version": "1",
+        "id": "run-tests-safely",
+        "user_prompt": "Run tests safely.",
+        "plugin_plan": {
+            "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+            "preview_command": "sandbox preview run python -m pytest",
+            "live_commands": ["sandbox run python -m pytest"],
+            "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+            "approval_required": True,
+            "resource_boundary": "Live commands require explicit approval.",
+        },
+    }
+
+    normalized = workflow_module.validate_workflow(legacy)
+
+    assert normalized["schema_version"] == "2"
+    assert normalized["plugin_plan"]["preview_commands"] == ["sandbox preview run python -m pytest"]
+    assert normalized["plugin_plan"]["required_cli_schema"] == "1"
+    assert normalized["plugin_plan"]["required_capabilities"] == ["cleanup", "run", "status"]
+
+
+def test_workflow_rejects_live_command_in_safe_discovery(workflow_module: ModuleType) -> None:
+    payload = workflow_module.plan_from_intent("run-tests-safely")
+    payload["plugin_plan"]["safe_commands"].append("sandbox run python -m pytest")
+
+    with pytest.raises(workflow_module.WorkflowError, match="outside safe discovery"):
+        workflow_module.validate_workflow(payload)
+
+
+@pytest.mark.parametrize(
+    ("preflight", "status", "next_action"),
+    [
+        (
+            {
+                "ok": True,
+                "ready_for_live": True,
+                "checks": {
+                    "schema": {
+                        "schema_version": "1",
+                        "live_modal": {"commands": ["run"]},
+                        "resource_management": {
+                            "status_command": "sandbox status",
+                            "cleanup_preview": "sandbox cleanup --app NAME",
+                        },
+                    }
+                },
+            },
+            "ready",
+            "request_live_approval",
+        ),
+        (
+            {
+                "ok": True,
+                "ready_for_live": False,
+                "checks": {
+                    "schema": {
+                        "schema_version": "1",
+                        "live_modal": {"commands": ["run"]},
+                        "resource_management": {
+                            "status_command": "sandbox status",
+                            "cleanup_preview": "sandbox cleanup --app NAME",
+                        },
+                    }
+                },
+            },
+            "blocked",
+            "complete_modal_setup",
+        ),
+        (
+            {
+                "ok": False,
+                "ready_for_live": False,
+                "error": {"code": "cli_outdated"},
+            },
+            "incompatible",
+            "fix_cli_compatibility",
+        ),
+    ],
+)
+def test_workflow_compatibility_states(
+    workflow_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    preflight: dict[str, Any],
+    status: str,
+    next_action: str,
+) -> None:
+    monkeypatch.setattr(
+        workflow_module,
+        "_load_preflight_module",
+        lambda: SimpleNamespace(run_preflight=lambda *args, **kwargs: preflight),
+    )
+
+    result = workflow_module.check_compatibility(
+        workflow_module.plan_from_intent("run-tests-safely"),
+        executable="fake-sandbox",
+    )
+
+    assert result["status"] == status
+    assert result["next_action"] == next_action
+    assert result["resource_free"] is True
+
+
+def test_workflow_compatibility_reports_missing_capabilities(
+    workflow_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preflight = {
+        "ok": True,
+        "ready_for_live": True,
+        "checks": {
+            "schema": {
+                "schema_version": "1",
+                "live_modal": {"commands": ["run"]},
+                "resource_management": {},
+            }
+        },
+    }
+    monkeypatch.setattr(
+        workflow_module,
+        "_load_preflight_module",
+        lambda: SimpleNamespace(run_preflight=lambda *args, **kwargs: preflight),
+    )
+
+    result = workflow_module.check_compatibility(workflow_module.plan_from_intent("run-tests-safely"))
+
+    assert result["status"] == "incompatible"
+    assert result["missing_capabilities"] == ["cleanup", "status"]
+    assert result["next_action"] == "upgrade_cli"
+
+
+def test_every_workflow_command_parses_against_current_cli() -> None:
+    parser = build_parser(package_version="0.4.1")
+    for path in sorted((PLUGIN_ROOT / "examples").glob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        plan = payload.get("plugin_plan")
+        if not isinstance(plan, dict):
+            continue
+        commands = [
+            *plan["safe_commands"],
+            *plan["preview_commands"],
+            *plan["live_commands"],
+            *plan["verification_commands"],
+            *plan["cleanup_commands"],
+        ]
+        for command in commands:
+            words = shlex.split(command)
+            if words[0] != "sandbox":
+                assert "<plugin-root>/scripts/benchmark.py" in command
+                continue
+            parser.parse_args(words[1:])
+
+
+def test_evaluator_enforces_metrics_and_live_boundary(evaluation_module: ModuleType) -> None:
+    corpus = json.loads((PLUGIN_ROOT / "evals" / "skill-trigger-corpus.json").read_text(encoding="utf-8"))
+    predictions = {
+        "schema_version": "1",
+        "cases": [
+            {
+                "id": case["id"],
+                "predicted": case["expected"],
+                "workflow_id": case.get("expected_workflow"),
+                "live_action": False,
+            }
+            for case in corpus["cases"]
+        ],
+    }
+
+    passing = evaluation_module.evaluate(corpus, predictions)
+    assert passing["status"] == "pass"
+    assert passing["metrics"] == {
+        "precision": 1.0,
+        "recall": 1.0,
+        "workflow_accuracy": 1.0,
+        "unsafe_live_actions": 0,
+    }
+
+    predictions["cases"][-1]["predicted"] = "activate"
+    predictions["cases"][-1]["live_action"] = True
+    failing = evaluation_module.evaluate(corpus, predictions)
+    assert failing["status"] == "fail"
+    assert failing["metrics"]["unsafe_live_actions"] == 1
 
 
 def test_benchmark_requires_explicit_live_authorization(tmp_path: Path) -> None:

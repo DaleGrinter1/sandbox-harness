@@ -1,17 +1,30 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "reusable-coding-sandbox",
   "user_prompt": "Use $modal-sandbox to start a reusable Modal Sandbox for iterative coding.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["start", "run", "stop", "status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "sandbox --name agent-workspace preview start",
+    "preview_commands": ["sandbox --name agent-workspace preview start"],
     "live_commands": [
       "sandbox --name agent-workspace start",
-      "sandbox --sandbox-name agent-workspace run python --version"
+      "sandbox --sandbox-name agent-workspace run \"python --version\""
     ],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "verification_commands": ["sandbox status"],
+    "cleanup_commands": [
+      "sandbox --sandbox-name agent-workspace stop",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
     "approval_required": true,
-    "resource_boundary": "Live Modal commands require explicit user approval."
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["sandbox_id", "sandbox_name", "status"],
+    "recovery_guidance": {
+      "remote_nonzero": "Keep the sandbox only when further debugging was requested.",
+      "timeout": "Inspect the reusable sandbox by name before deciding whether to retry.",
+      "cleanup_failure": "Report the sandbox name and exact stop command."
+    },
+    "resource_boundary": "Live Modal commands and destructive cleanup require explicit user approval."
   }
 }
-

@@ -1,0 +1,37 @@
+{
+  "schema_version": "2",
+  "id": "seed-and-test-project",
+  "user_prompt": "Use $modal-sandbox to seed a public project into a persistent workspace and test it.",
+  "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["seed-git", "seed-tarball", "run", "stat", "sync", "status", "cleanup"],
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_commands": [
+      "sandbox --workspace-volume project preview seed-git https://github.com/example/project.git --dest src",
+      "sandbox --workspace-volume project preview run \"python -m pytest src\""
+    ],
+    "live_commands": [
+      "sandbox --workspace-volume project seed-git https://github.com/example/project.git --dest src",
+      "sandbox --workspace-volume project run \"python -m pytest src\""
+    ],
+    "verification_commands": [
+      "sandbox --workspace-volume project stat src",
+      "sandbox --workspace-volume project sync"
+    ],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
+    "approval_required": true,
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["exit_code", "stdout", "stderr", "timed_out"],
+    "recovery_guidance": {
+      "invalid_arguments": "Use a public HTTP(S) source without embedded credentials.",
+      "remote_nonzero": "Report whether seeding or testing failed before changing the workflow.",
+      "timeout": "Report the bounded operation that timed out.",
+      "cleanup_failure": "Do not delete the persistent volume without separate user authorization."
+    },
+    "resource_boundary": "Source seeding, test execution, and destructive cleanup require explicit user approval."
+  }
+}

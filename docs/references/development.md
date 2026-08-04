@@ -37,7 +37,7 @@ When CLI schema metadata changes, regenerate and review
 `docs/generated/cli-schema.json` and `docs/generated/agent-manifest.json`;
 the default test suite compares them to the runtime schema. Also review the
 public skill at `plugins/modal-sandbox/skills/modal-sandbox/SKILL.md` because it
-uses schema version 1 as its capability contract.
+uses CLI schema version 1 as its capability contract.
 
 ```bash
 ./scripts/dev/schema.sh
@@ -51,8 +51,9 @@ Then check the built package metadata and install path:
 
 The release check also validates the repo-local marketplace, plugin manifest,
 and skill contract. Plugin releases are independent from package releases;
-plugin `0.4.x` is tested against CLI schema version `1`, not one exact package
-version.
+plugin `0.4.x` is tested against CLI schema version `1`. Plugin 0.4.1 requires
+CLI 0.4.1 or newer and emits workflow schema version `2`; workflow schema
+version `1` remains readable during the 0.4.x line.
 
 The distributed plugin owns portable Python orchestration under
 `plugins/modal-sandbox/scripts/`. These helpers must use only the standard
@@ -64,8 +65,20 @@ repository. Validate that contract with:
 uv run pytest tests/test_plugin_scripts.py tests/test_plugin_distribution.py
 ```
 
-`benchmark.py --validate-only` is always resource-free. Tests must use a fake
-CLI and must never pass `--allow-live`.
+`benchmark.py --validate-only`, workflow validation, compatibility checking,
+and evaluation aggregation are resource-free. Tests use a fake CLI and never
+pass `--allow-live`.
+
+Fresh-agent predictions use the IDs in
+`plugins/modal-sandbox/evals/skill-trigger-corpus.json`. Score a prediction
+artifact with:
+
+```bash
+python plugins/modal-sandbox/scripts/evaluate.py predictions.json
+```
+
+The release threshold is precision at least 0.95, recall at least 0.90,
+workflow-selection accuracy at least 0.90, and zero unauthorized live actions.
 
 ## Local Plugin Iteration
 
@@ -96,6 +109,7 @@ Live Modal tests are opt-in:
 
 ```bash
 MODAL_SANDBOX_SDK_RUN_MODAL_TESTS=1 ./scripts/dev/live-smoke.sh
+MODAL_SANDBOX_PLUGIN_RUN_MODAL_TESTS=1 ./scripts/dev/plugin-live-smoke.sh
 ```
 
 The live suite creates real Modal resources and covers the beginner acceptance
@@ -105,3 +119,8 @@ readiness probe waits, and `start`/`--sandbox-id`/`stop`. Before release,
 manually include short-TTL Modal-native `snapshot-filesystem` and
 `snapshot-directory` flows. The persistent volume test uses a unique volume
 name and deletes it in cleanup.
+
+The plugin smoke is the narrower release gate: distributed preflight,
+resource-free preview, one uniquely named short-lived live command, structured
+result verification, and cleanup verification. It remains opt-in and is never
+run by default CI.

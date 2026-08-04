@@ -1,0 +1,34 @@
+{
+  "schema_version": "2",
+  "id": "service-with-readiness",
+  "user_prompt": "Use $modal-sandbox to start this service, wait for port 3000, verify its URL, and stop it.",
+  "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["start", "wait-ready", "domain", "stop", "status", "cleanup"],
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_commands": [
+      "sandbox --name agent-service --encrypted-port 3000 --readiness-tcp 3000 preview start"
+    ],
+    "live_commands": [
+      "sandbox --name agent-service --encrypted-port 3000 --readiness-tcp 3000 --wait-ready start"
+    ],
+    "verification_commands": [
+      "sandbox --sandbox-name agent-service wait-ready --timeout 60",
+      "sandbox --sandbox-name agent-service domain 3000"
+    ],
+    "cleanup_commands": [
+      "sandbox --sandbox-name agent-service stop",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
+    "approval_required": true,
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["sandbox_id", "sandbox_name", "ready", "url"],
+    "recovery_guidance": {
+      "readiness_failure": "Inspect the declared probe, service output, and port before retrying.",
+      "timeout": "Report whether startup or readiness exceeded its bound.",
+      "cleanup_failure": "Report the sandbox name and exact stop command."
+    },
+    "resource_boundary": "Service creation, domain contact, and destructive cleanup require explicit user approval."
+  }
+}

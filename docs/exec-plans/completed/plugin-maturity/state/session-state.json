@@ -1,0 +1,15 @@
+{
+  "initiative": "plugin-maturity",
+  "schema_version": 1,
+  "active_feature": null,
+  "blockers": [],
+  "next_action": "Initiative complete. Run the opt-in live plugin smoke only after explicit authorization and configured Modal credentials.",
+  "handoff_rules": [
+    "Read PLAN_plugin-maturity.md before implementation.",
+    "Preserve existing uncommitted CLI and provider refactoring changes.",
+    "Append progress entries instead of editing old JSONL lines.",
+    "Mark passes true only after validation evidence exists.",
+    "Do not run live Modal validation without explicit authorization."
+  ],
+  "last_updated": "2026-08-04T08:55:53+09:30"
+}

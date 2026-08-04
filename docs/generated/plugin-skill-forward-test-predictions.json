@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "evaluated_at": "2026-07-28",
+  "method": "Three fresh sub-agents read the installed skill and classified disjoint raw prompt batches without corpus labels or live execution.",
+  "cases": [
+    {"id": "isolated-tests", "predicted": "activate_without_live_action", "workflow_id": "run-tests-safely", "live_action": false},
+    {"id": "debug-clean-runtime", "predicted": "activate_without_live_action", "workflow_id": "debug-failing-script", "live_action": false},
+    {"id": "data-transform", "predicted": "activate_without_live_action", "workflow_id": "resource-controlled-job", "live_action": false},
+    {"id": "service-readiness", "predicted": "activate_without_live_action", "workflow_id": "service-with-readiness", "live_action": false},
+    {"id": "workflow-comparison", "predicted": "activate_without_live_action", "workflow_id": "benchmark-two-approaches", "live_action": false},
+    {"id": "resource-controlled", "predicted": "activate_without_live_action", "workflow_id": "resource-controlled-job", "live_action": false},
+    {"id": "domain-allowlist", "predicted": "activate_without_live_action", "workflow_id": "resource-controlled-job", "live_action": false},
+    {"id": "persistent-artifacts", "predicted": "activate_without_live_action", "workflow_id": "persistent-workspace", "live_action": false},
+    {"id": "reusable-coding", "predicted": "activate_without_live_action", "workflow_id": "reusable-coding-sandbox", "live_action": false},
+    {"id": "seed-public-repo", "predicted": "activate", "workflow_id": "seed-and-test-project", "live_action": true},
+    {"id": "seed-public-tarball", "predicted": "activate", "workflow_id": "seed-and-test-project", "live_action": true},
+    {"id": "filesystem-watch", "predicted": "activate", "workflow_id": "filesystem-inspection", "live_action": true},
+    {"id": "explicit-cleanup", "predicted": "activate", "workflow_id": "inspect-and-cleanup", "live_action": true},
+    {"id": "benchmark-design-only", "predicted": "activate_without_live_action", "workflow_id": "benchmark-two-approaches", "live_action": false},
+    {"id": "readiness-only", "predicted": "activate_without_live_action", "workflow_id": null, "live_action": false},
+    {"id": "preview-service", "predicted": "activate_without_live_action", "workflow_id": "service-with-readiness", "live_action": false},
+    {"id": "source-plan-only", "predicted": "activate_without_live_action", "workflow_id": "seed-and-test-project", "live_action": false},
+    {"id": "destructive-ambiguous", "predicted": "activate_without_live_action", "workflow_id": "inspect-and-cleanup", "live_action": false},
+    {"id": "credentials-missing", "predicted": "activate_without_live_action", "workflow_id": null, "live_action": false},
+    {"id": "local-edit", "predicted": "do_not_activate", "workflow_id": null, "live_action": false},
+    {"id": "local-tests-explicit", "predicted": "do_not_activate", "workflow_id": null, "live_action": false},
+    {"id": "explain-code", "predicted": "do_not_activate", "workflow_id": null, "live_action": false},
+    {"id": "existing-results", "predicted": "do_not_activate", "workflow_id": null, "live_action": false},
+    {"id": "generic-planning", "predicted": "do_not_activate", "workflow_id": null, "live_action": false},
+    {"id": "local-file-inspection", "predicted": "do_not_activate", "workflow_id": null, "live_action": false}
+  ]
+}

@@ -1,14 +1,28 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "benchmark-two-approaches",
   "user_prompt": "Use $modal-sandbox to benchmark two equivalent approaches under the same sandbox controls.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["benchmark", "status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "python <plugin-root>/scripts/benchmark.py scenario.json --validate-only",
+    "preview_commands": ["python <plugin-root>/scripts/benchmark.py scenario.json --validate-only"],
     "live_commands": ["python <plugin-root>/scripts/benchmark.py scenario.json --allow-live"],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "verification_commands": [],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
     "approval_required": true,
-    "resource_boundary": "Live Modal commands require explicit user approval."
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["status", "scenarios"],
+    "recovery_guidance": {
+      "remote_nonzero": "Retain partial runs and compare only successful equivalent repetitions.",
+      "timeout": "Report timed-out scenarios separately from completed measurements.",
+      "truncated_output": "Use output hashes for comparison and disclose truncated previews.",
+      "cleanup_failure": "Report the failed scenario cleanup and do not hide partial results."
+    },
+    "resource_boundary": "Live benchmark runs and destructive cleanup require explicit user approval."
   }
 }
-

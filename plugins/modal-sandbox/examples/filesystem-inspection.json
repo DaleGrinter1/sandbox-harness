@@ -1,0 +1,34 @@
+{
+  "schema_version": "2",
+  "id": "filesystem-inspection",
+  "user_prompt": "Use $modal-sandbox to inspect, watch, sync, and snapshot this persistent workspace.",
+  "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["stat", "watch", "sync", "snapshot", "snapshot-filesystem", "status", "cleanup"],
+    "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
+    "preview_commands": ["sandbox --workspace-volume work preview stat ."],
+    "live_commands": [
+      "sandbox --workspace-volume work stat .",
+      "sandbox --workspace-volume work watch . --timeout 5 --recursive",
+      "sandbox --workspace-volume work sync",
+      "sandbox --workspace-volume work snapshot",
+      "sandbox --workspace-volume work snapshot-filesystem --ttl 604800"
+    ],
+    "verification_commands": ["sandbox --workspace-volume work stat ."],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
+    "approval_required": true,
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["path", "events", "volume_name", "image_id"],
+    "recovery_guidance": {
+      "invalid_arguments": "Correct the path or bounded watch arguments and preview again.",
+      "timeout": "Treat a bounded watch timeout as completion unless the result says otherwise.",
+      "truncated_output": "Report omitted events or output before changing the bound.",
+      "cleanup_failure": "Do not delete persistent volume data without separate authorization."
+    },
+    "resource_boundary": "Filesystem operations, snapshots, and destructive cleanup require explicit user approval."
+  }
+}

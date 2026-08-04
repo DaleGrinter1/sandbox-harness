@@ -1,14 +1,28 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "id": "run-tests-safely",
   "user_prompt": "Use $modal-sandbox to run this untrusted test suite away from my laptop.",
   "plugin_plan": {
+    "required_cli_schema": "1",
+    "required_capabilities": ["run", "status", "cleanup"],
     "safe_commands": ["sandbox dry", "sandbox doctor", "sandbox schema --agent"],
-    "preview_command": "sandbox preview run python -m pytest",
-    "live_commands": ["sandbox run python -m pytest"],
-    "cleanup_commands": ["sandbox status", "sandbox cleanup --app modal-sandbox-sdk"],
+    "preview_commands": ["sandbox preview run \"python -m pytest\""],
+    "live_commands": ["sandbox run \"python -m pytest\""],
+    "verification_commands": [],
+    "cleanup_commands": [
+      "sandbox status",
+      "sandbox cleanup --app modal-sandbox-sdk",
+      "sandbox cleanup --app modal-sandbox-sdk --yes"
+    ],
     "approval_required": true,
-    "resource_boundary": "Live Modal commands require explicit user approval."
+    "approval_points": ["before_live", "before_destructive_cleanup"],
+    "expected_result_fields": ["exit_code", "stdout", "stderr", "timed_out"],
+    "recovery_guidance": {
+      "remote_nonzero": "Report stderr and the nonzero exit code as a completed command result.",
+      "timeout": "Report the timeout and change its bound only with user approval.",
+      "truncated_output": "Report truncation before considering a larger output bound.",
+      "cleanup_failure": "Report the remaining resource identifier and cleanup command."
+    },
+    "resource_boundary": "Live Modal commands and destructive cleanup require explicit user approval."
   }
 }
-

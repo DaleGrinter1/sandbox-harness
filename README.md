@@ -35,10 +35,9 @@ codex plugin add modal-sandbox@personal
 
 Start a new Codex thread so the plugin and `$modal-sandbox` skill are loaded,
 then ask it to run an isolated task in Modal. The skill starts with
-`sandbox dry`,
-`sandbox doctor`, and `sandbox schema --agent`; those commands do not create
-Modal resources. Live operations still require an explicit execution request
-and authenticated Modal credentials.
+the distributed preflight, workflow planner, and CLI compatibility check. Their
+discovery commands do not create Modal resources. Live operations still require
+an explicit execution request and authenticated Modal credentials.
 
 Verify the five-minute onboarding path:
 
@@ -63,18 +62,24 @@ installed plugin directory rather than the current working directory.
 ## Plugin Workflow Examples
 
 The plugin is the main user experience; the CLI is its JSON engine and the SDK
-is the Python implementation layer behind that engine. Distributed examples
-describe user intent, the safe discovery commands, preview command, live
-commands, cleanup commands, and approval boundary:
+is the Python implementation layer behind that engine. Workflow schema version
+2 describes required CLI capabilities, safe discovery, previews, live
+commands, verification, cleanup, expected result fields, recovery guidance,
+and approval boundaries:
 
 - `plugins/modal-sandbox/examples/run-tests-safely.json`
 - `plugins/modal-sandbox/examples/debug-failing-script.json`
 - `plugins/modal-sandbox/examples/persistent-workspace.json`
 - `plugins/modal-sandbox/examples/reusable-coding-sandbox.json`
+- `plugins/modal-sandbox/examples/seed-and-test-project.json`
+- `plugins/modal-sandbox/examples/service-with-readiness.json`
+- `plugins/modal-sandbox/examples/resource-controlled-job.json`
+- `plugins/modal-sandbox/examples/filesystem-inspection.json`
 - `plugins/modal-sandbox/examples/benchmark-two-approaches.json`
 - `plugins/modal-sandbox/examples/inspect-and-cleanup.json`
 
-Validate an example or create a starter plan without contacting Modal:
+Validate an example, create a starter plan, or check the installed CLI without
+creating Modal resources:
 
 ```bash
 python plugins/modal-sandbox/scripts/workflow.py \
@@ -82,7 +87,14 @@ python plugins/modal-sandbox/scripts/workflow.py \
   --validate-only
 
 python plugins/modal-sandbox/scripts/workflow.py --intent run-tests-safely
+
+python plugins/modal-sandbox/scripts/workflow.py \
+  --intent run-tests-safely \
+  --check-compatibility
 ```
+
+The compatibility result is `ready`, `blocked`, or `incompatible`. `ready`
+still requires explicit approval before the plan's live commands.
 
 ## Workflow Benchmarks
 

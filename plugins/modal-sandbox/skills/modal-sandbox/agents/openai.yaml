@@ -1,4 +1,4 @@
 interface:
   display_name: "Modal Sandbox"
-  short_description: "Run isolated, reproducible tasks in Modal Sandboxes"
-  default_prompt: "Use $modal-sandbox when this task needs isolated, reproducible, or resource-controlled execution."
+  short_description: "Guide safe Modal Sandbox workflows"
+  default_prompt: "Use $modal-sandbox to plan, validate, and run this isolated workflow safely."

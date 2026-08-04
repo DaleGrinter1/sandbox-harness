@@ -1,152 +1,113 @@
 ---
 name: modal-sandbox
-description: Run tasks that need isolated, reproducible, or resource-controlled execution in Modal Sandboxes through the modal-sandbox-sdk JSON CLI. Use for untrusted commands, clean runtime experiments, build or test jobs, data workflows, service checks, agent evaluations, controlled workflow benchmarks, persistent remote files, or reusable Modal Sandboxes.
+description: Plan, validate, and run tasks that need isolated, reproducible, or resource-controlled execution in Modal Sandboxes through the modal-sandbox-sdk JSON CLI. Use for untrusted commands, clean runtime experiments, public source seeding, build or test jobs, data workflows, services with readiness checks, filesystem inspection, agent evaluations, controlled benchmarks, persistent remote files, or reusable Modal Sandboxes.
 ---
 
 # Modal Sandbox
 
-Use the installed `sandbox` command as the execution engine. Do not install the package silently.
-Do not invoke it through `uvx`, duplicate its implementation, or use an MCP
-server in place of the CLI.
+Treat this plugin as the product surface, the installed `sandbox` CLI as its
+JSON execution engine, and the Python SDK as the lower-level implementation.
+Do not duplicate the CLI, replace it with an MCP server, invoke it through
+`uvx`, or install or upgrade packages without explicit approval.
 
-Use this skill when isolation or declared sandbox controls materially improve
-the task. Do not use it merely for explanation, planning, an ordinary local
-edit, or summarizing results that already exist.
+Resolve `<plugin-root>` as two directories above this installed `SKILL.md`.
+Resolve every distributed script, example, and reference from that root so the
+plugin works from any current directory.
 
-Resolve `<plugin-root>` from this installed `SKILL.md` as two directories up.
-Distributed helpers live under `<plugin-root>/scripts/` and must work from any
-current working directory.
+## Safe Workflow
 
-Treat this plugin as the product surface. The `sandbox` CLI is the JSON engine
-that performs checked operations, and the Python SDK is an implementation layer
-for the CLI. Do not send users to the SDK first unless they explicitly ask for
-Python API usage.
-
-## Preflight
-
-1. Run `sandbox --version`. Require `modal-sandbox-sdk` 0.4.0 or newer. If the
-   command is unavailable, stop before any live action and tell the user to run:
+1. Run the distributed resource-free preflight:
 
    ```bash
-   uv tool install modal-sandbox-sdk
+   python <plugin-root>/scripts/preflight.py
    ```
 
-   If an older version is installed, stop and tell the user to run
-   `uv tool upgrade modal-sandbox-sdk`. Never change the user's Python
-   environment without explicit approval.
+   Require `modal-sandbox-sdk` 0.4.1 or newer and CLI schema `1`. If Python
+   cannot run the helper, run `sandbox --version`, `sandbox dry`,
+   `sandbox doctor`, `sandbox schema --agent`, and `sandbox quickstart`.
+   On `cli_not_found`, stop and recommend
+   `uv tool install modal-sandbox-sdk`. On `cli_outdated`, stop and recommend
+   `uv tool upgrade modal-sandbox-sdk`. Never perform either change silently.
 
-2. Run the resource-free discovery sequence:
+2. Select the closest workflow and generate a version 2 plan:
 
    ```bash
-   sandbox dry
-   sandbox doctor
-   sandbox schema --agent
+   python <plugin-root>/scripts/workflow.py --intent run-tests-safely
    ```
 
-3. Parse each command's JSON output. Require schema version `1`. Use the agent
-   schema's `golden_workflows` and run `sandbox schema` only when command-level
-   details are needed.
-4. Before a live operation, require `doctor.credentials.complete` or
-   `doctor.credentials.verified` to be `true`. If both are false, stop and direct interactive users to `modal setup`.
-   For non-interactive environments, explain that both `MODAL_TOKEN_ID` and
-   `MODAL_TOKEN_SECRET` must be configured; never request that secrets be pasted
-   into source files or command history.
-5. For a first-time user, run `sandbox quickstart` as a resource-free preview.
-   Run `sandbox quickstart --run` only when the user explicitly asks to create
-   the first live sandbox.
-6. Before a live operation, run `sandbox preview ...` with the intended command
-   and summarize the redacted configuration: create versus attach, image,
-   workspace, volumes, network policy, resource requests, ports, and env keys.
+3. Check the workflow against the installed CLI without creating resources:
 
-For one structured resource-free preflight, prefer:
+   ```bash
+   python <plugin-root>/scripts/workflow.py \
+     --intent run-tests-safely \
+     --check-compatibility
+   ```
 
-```bash
-python <plugin-root>/scripts/preflight.py
-```
+   Continue only when the result status is `ready`. Treat `blocked` as a setup
+   problem and `incompatible` as a CLI version, schema, or capability problem.
 
-If Python cannot run the helper, use the direct CLI sequence above.
+4. Run every `preview_commands` entry and summarize its redacted image,
+   workspace, volumes, network policy, resources, ports, readiness probe, and
+   environment keys.
+5. Ask for explicit approval before `live_commands`. A planning, explanation,
+   preview, benchmark-design, or readiness-only request never grants approval.
+6. Run approved live commands through `sandbox`, parse their JSON envelopes,
+   then run `verification_commands`.
+7. Preview cleanup first. Run a cleanup command containing `--yes`, or any
+   command that stops a sandbox, only after explicit cleanup authorization.
 
-For a resource-free workflow plan from a user intent, prefer:
+## Workflow Routing
 
-```bash
-python <plugin-root>/scripts/workflow.py --intent run-tests-safely
-```
+Activate this skill for Modal-sandbox-specific planning, preflight, preview, and
+benchmark design even when live execution is forbidden; keep those requests
+resource-free. Select and report exactly one canonical workflow ID below when
+the intent matches. Do not invent a new workflow ID.
 
-The distributed workflow examples under `<plugin-root>/examples/` show the
-expected plugin plan, safe commands, preview command, live commands, cleanup
-commands, and approval boundary for common user prompts.
+- `run-tests-safely`: one bounded isolated test run.
+- `debug-failing-script`: reproduce and inspect a failure in a clean runtime.
+- `persistent-workspace`: preserve and verify files across separate runs.
+- `reusable-coding-sandbox`: share one named live sandbox across operations.
+- `seed-and-test-project`: seed public Git or tarball source, then test it.
+- `service-with-readiness`: declare ports and probes, resolve a domain, stop.
+- `resource-controlled-job`: declare compute, environment, and network limits.
+- `filesystem-inspection`: stat, watch, sync, and snapshot workspace state.
+- `benchmark-two-approaches`: compare equivalent bounded scenarios.
+- `inspect-and-cleanup`: inspect apps and perform separately approved cleanup.
 
-## Choose a Workflow
-
-- Use `sandbox run` or `sandbox run-command` for one isolated operation.
-- Add `--workspace-volume NAME` when files must survive separate CLI calls.
-- Use `sandbox.toml` when the same image, volume, env keys, or network flags
-  repeat across commands. Explicit CLI flags still win.
-- Use `sandbox --name NAME start`, then `--sandbox-name NAME` or
-  `--sandbox-id ID`, when multiple operations must share one running sandbox.
-- Use `sandbox status` to inspect visible sandbox apps and `sandbox cleanup`
-  to preview cleanup. Add `--yes` only after the user authorizes stopping apps.
-- Declare ports and readiness probes before starting a service; resolve its URL
-  with `domain` only after readiness succeeds.
-- For a controlled comparison, create a versioned benchmark manifest and
-  validate it without resources:
-
-  ```bash
-  python <plugin-root>/scripts/benchmark.py scenario.json --validate-only
-  ```
-
-  After explicit authorization for live Modal execution, run:
-
-  ```bash
-  python <plugin-root>/scripts/benchmark.py scenario.json --allow-live
-  ```
-
-  Compare only equivalent inputs and controls. Report runtime or image,
-  resources, region when declared, network policy, warmups, repetitions,
-  timeouts, cache state, and the runner's limitations.
-
-Prefer the exact commands returned by `sandbox schema --agent`. Treat relative
-paths as relative to the sandbox workspace, not the user's local repository.
-
-## Workflow Examples
-
-- Run tests safely: `<plugin-root>/examples/run-tests-safely.json`
-- Debug a failing script: `<plugin-root>/examples/debug-failing-script.json`
-- Persist workspace files: `<plugin-root>/examples/persistent-workspace.json`
-- Start a reusable coding sandbox: `<plugin-root>/examples/reusable-coding-sandbox.json`
-- Benchmark two approaches: `<plugin-root>/examples/benchmark-two-approaches.json`
-- Inspect and clean up resources: `<plugin-root>/examples/inspect-and-cleanup.json`
+Read [workflow-recipes.md](references/workflow-recipes.md) when selecting or
+adapting commands for one of these workflows. Prefer exact capabilities from
+`sandbox schema --agent`; relative paths resolve inside the sandbox workspace.
 
 ## Live-Action Boundary
 
-- Run live Modal commands only when the user asked for execution or explicitly
-  approved the live step. Discovery, explanation, and planning requests do not
-  authorize resource creation.
-- State when the next command creates or contacts a Modal resource.
-- Prefer showing the `sandbox preview ...` result before the live command.
-- Use a unique, meaningful name for agent-created volumes and reusable
-  sandboxes to reduce collisions.
-- Wrap long-lived workflows in cleanup logic. Stop an agent-created reusable
-  sandbox when the requested work finishes unless the user explicitly asks to
-  keep it running. Report any cleanup failure.
-- Never run the live test suite unless the user explicitly requests it.
-- Never run `sandbox cleanup --yes` unless the user explicitly authorizes
-  stopping Modal apps.
-- Designing or validating a benchmark does not authorize running it. The
-  benchmark helper must receive `--allow-live`, and preflight must report
-  complete credentials, before it contacts Modal.
-- Treat user-supplied workflow commands as untrusted. Apply requested network
-  and resource controls, never place secrets in manifests, and keep repetitions,
-  timeouts, and output bounded.
+- Require `doctor.credentials.complete` or `doctor.credentials.verified` before
+  live work. Otherwise direct interactive users to `modal setup`; in
+  non-interactive environments, name `MODAL_TOKEN_ID` and
+  `MODAL_TOKEN_SECRET` without requesting secret values in chat or source.
+- State when the next command contacts Modal or creates a resource.
+- Use unique meaningful names for agent-created volumes and reusable sandboxes.
+- Bound command time, output, filesystem watches, and benchmark repetitions.
+- Never silently relax network or resource controls after a failure.
+- Stop agent-created reusable sandboxes when work finishes unless the user asks
+  to retain them. Preserve persistent volume data unless deletion is separately
+  authorized.
+- Never run live tests or `sandbox cleanup --yes` without explicit approval.
 
-## Results and Errors
+## Results and Recovery
 
-- Read the CLI JSON envelope instead of inferring success from prose.
-- For command results, report `exit_code`, `stdout`, `stderr`, `timed_out`, and
-  truncation fields that affect the result. A nonzero sandbox command exit is a
-  completed command result, not automatically a CLI transport failure.
-- Add `--use-command-exit-code` only when the surrounding shell must receive the
-  remote command's exit status.
-- Surface CLI error codes and suggested fixes without inventing fallback
-  behavior. Do not retry authentication, permission, or invalid-argument errors
-  unchanged.
+Report the expected fields declared by the workflow. For command results,
+include `exit_code`, `stdout`, `stderr`, `timed_out`, and any truncation fields.
+A nonzero remote exit is a completed command result, not automatically a CLI
+transport failure.
+
+Read [results-and-recovery.md](references/results-and-recovery.md) when a
+preflight, command, readiness probe, result, or cleanup step fails. Do not retry
+authentication, permission, invalid-argument, or destructive operations
+unchanged.
+
+For benchmarks, validate first and run only after live authorization:
+
+```bash
+python <plugin-root>/scripts/benchmark.py scenario.json --validate-only
+python <plugin-root>/scripts/benchmark.py scenario.json --allow-live
+```

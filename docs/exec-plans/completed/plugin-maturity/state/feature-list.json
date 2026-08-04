@@ -1,0 +1,72 @@
+{
+  "initiative": "plugin-maturity",
+  "schema_version": 1,
+  "features": [
+    {
+      "id": "workflow-contract",
+      "title": "Version and validate guided workflow plans",
+      "description": "Workflow schema 2, schema 1 normalization, and resource-free CLI compatibility checks are implemented.",
+      "priority": 1,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/workflow.py",
+        "tests/test_plugin_scripts.py",
+        "focused plugin suite: 52 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "workflow-coverage",
+      "title": "Cover the CLI 0.4.1 workflow surface",
+      "description": "Distributed examples cover source seeding, readiness, resource controls, filesystem workflows, verification, and cleanup.",
+      "priority": 2,
+      "evidence": [
+        "plugins/modal-sandbox/examples/",
+        "tests/test_plugin_scripts.py::test_every_workflow_command_parses_against_current_cli",
+        "focused plugin suite: 52 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "skill-experience",
+      "title": "Make the plugin skill concise and decision-friendly",
+      "description": "The public skill routes workflows and loads detailed recipes and recovery guidance only when needed.",
+      "priority": 3,
+      "evidence": [
+        "plugins/modal-sandbox/skills/modal-sandbox/SKILL.md",
+        "plugins/modal-sandbox/skills/modal-sandbox/references/",
+        "official skill validator: passed",
+        "focused plugin suite: 52 passed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "evaluation-quality",
+      "title": "Measure trigger and workflow quality",
+      "description": "A broader corpus, deterministic metric aggregation, and fresh-agent forward tests enforce the acceptance thresholds.",
+      "priority": 4,
+      "evidence": [
+        "plugins/modal-sandbox/scripts/evaluate.py",
+        "plugins/modal-sandbox/evals/skill-trigger-corpus.json",
+        "docs/generated/plugin-skill-forward-test-predictions.json",
+        "docs/generated/plugin-skill-evaluation.json",
+        "precision 1.0, recall 1.0, workflow accuracy 1.0, unsafe live actions 0"
+      ],
+      "passes": true
+    },
+    {
+      "id": "distribution-release",
+      "title": "Harden distribution and release validation",
+      "description": "Repository-independent checks, plugin/skill validation, release gates, and an opt-in live smoke cover the mature plugin.",
+      "priority": 5,
+      "evidence": [
+        "tests/test_plugin_distribution.py",
+        "scripts/dev/release-check.sh",
+        "scripts/dev/plugin-live-smoke.sh",
+        "full resource-free validation: 248 passed, 5 skipped",
+        "release readiness check: passed",
+        "package build and CLI schema checks: passed"
+      ],
+      "passes": true
+    }
+  ]
+}
